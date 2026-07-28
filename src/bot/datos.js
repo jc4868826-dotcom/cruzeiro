@@ -243,4 +243,4 @@ function buscarPedidosPorRut(rutInput) {
   });
 }
 
-module.exports = { buscarClientePorRut, buscarEjecutivo, buscarPedidosPorRut, resolverEjecutivo, getTodosCatalogo, cargarTodosEjecutivos };
+module.exports = { buscarClientePorRut, buscarEjecutivo, buscarPedidosPorRut, resolverEjecutivo, getTodosCatalogo, cargarTodosEjecutivos, cargarClientes, cargarPedidos };
