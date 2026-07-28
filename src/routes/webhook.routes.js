@@ -46,7 +46,12 @@ router.get('/whatsapp', (req, res) => {
 async function procesarMensajeWhatsApp(phone, texto, value) {
   try {
     console.log('[webhook] Procesando:', phone, texto.slice(0, 50));
-    const resultado = await botService.procesarMensaje(phone, texto, null, { canal: 'whatsapp' });
+
+    const conversaciones = await db.getAll('conversaciones');
+    const conversacionExistente = conversaciones.find(c => c.phone === phone) || null;
+
+    const resultado = await botService.procesarMensaje(phone, texto, conversacionExistente, { canal: 'whatsapp' });
+
     if (resultado?.respuesta) {
       await whatsappAdapter.enviarMensaje(phone, resultado.respuesta);
       console.log('[webhook] Respuesta enviada a:', phone);
