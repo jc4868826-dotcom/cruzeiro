@@ -2,7 +2,7 @@
 const path = require('path');
 const xlsx = require('xlsx');
 
-const MAESTRA_FILE = process.env.MAESTRA_FILE || '20260713 Maestra full.xlsx';
+const MAESTRA_FILE = process.env.MAESTRA_FILE || 'Maestra_Orleans.xlsx';
 const WEB_FILE     = process.env.WEB_FILE     || 'web.xlsx';
 const VENTAS_FILE  = process.env.VENTAS_FILE  || '20260709 Ventas 2026.xlsx';
 const PEDIDOS_FILE = process.env.PEDIDOS_FILE || 'Estado Notas Pedido.xlsx';

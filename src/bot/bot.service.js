@@ -365,7 +365,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
         leadUpdate.rut = rutNorm;
         leadUpdate.segmento = canalCliente;
         leadUpdate.canal = canalCliente;
-        leadUpdate.asignado_a = ejecutivoUsername || null;
         leadUpdate.ejecutivo_asignado = ejecutivoUsername || null;
         leadUpdate.ejecutivo_nombre = ejecutivoNombre || ejecutivoUsername || '';
         if (cliente.direccion) leadUpdate.direccion = cliente.direccion;
@@ -382,7 +381,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
         const ecomIdx = Math.floor(Date.now() / 60000) % ejecutivosEcom.length;
         if (!leadUpdate.ejecutivo_asignado) {
           leadUpdate.ejecutivo_asignado = ejecutivosEcom[ecomIdx];
-          leadUpdate.asignado_a = ejecutivosEcom[ecomIdx];
         }
       }
     }
@@ -435,7 +433,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       if (conversacionExistente?.lead_id) {
         await db.update('leads', conversacionExistente.lead_id, {
           etapa_pipeline: 'Contactado',
-          asignado_a: estadoActual.ejecutivoAsignado,
+          ejecutivo_asignado: estadoActual.ejecutivoAsignado,
         });
       }
     }
