@@ -16,6 +16,11 @@ const { iniciarBackupAutomatico } = require('./utils/backup');
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 async function bootstrap() {
   try {
+    // 0. Load Excel data into memory (síncrono, antes de cualquier request)
+    const dataStore = require('./data/dataStore');
+    dataStore.init();
+    dataStore.startAutoReload();
+
     // 1. Seed initial data if collections are empty
     await seedIfEmpty();
 

@@ -3,7 +3,7 @@ services:
     name: cruzeiro-funnelos
     env: node
     plan: starter
-    buildCommand: npm install && mkdir -p /data/cruzeiro && cp data/cruzeiro/catalogo-enriquecido.json /data/cruzeiro/ && cp data/cruzeiro/conocimiento-productos.json /data/cruzeiro/ && node scripts/seed-ejecutivos.js && chmod 644 /data/cruzeiro/conocimiento-productos.json && chmod 644 /data/cruzeiro/catalogo-enriquecido.json
+    buildCommand: npm install && node scripts/seed-ejecutivos.js
     startCommand: node src/server.js
     disk:
       name: funnelos-data

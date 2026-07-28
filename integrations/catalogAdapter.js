@@ -53,10 +53,6 @@ const SINONIMOS = {
   'ferreteria':       ['Herramientas', 'Adhesivos', 'Perfiles', 'Rodón'],
 };
 
-function cargarCatalogo() {
-  return datos.getTodosCatalogo();
-}
-
 function normalizar(str) {
   return (str || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 }
@@ -79,7 +75,7 @@ function ordenar(lista) {
 }
 
 function buscar(query) {
-  const catalogo = cargarCatalogo();
+  const catalogo = datos.getTodosCatalogo();
   const q = query.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
   const tokens = q.split(/\s+/).filter(t => t.length > 2);
   if (!tokens.length) return [];
@@ -111,7 +107,7 @@ function buscarConocimiento(query) {
 }
 
 function buscarPorSubcategorias(subcategorias) {
-  const catalogo = cargarCatalogo();
+  const catalogo = datos.getTodosCatalogo();
   const subcatsNorm = subcategorias.map(s => s.toLowerCase().trim());
   return catalogo
     .filter(p => subcatsNorm.includes((p.subcategoria || '').toLowerCase().trim()))
@@ -123,12 +119,12 @@ function buscarPorSubcategorias(subcategorias) {
 }
 
 function listarSubcategorias() {
-  const catalogo = cargarCatalogo();
+  const catalogo = datos.getTodosCatalogo();
   return [...new Set(catalogo.map(p => p.subcategoria).filter(Boolean))].sort();
 }
 
 function obtenerResumenCatalogo() {
-  const catalogo = cargarCatalogo();
+  const catalogo = datos.getTodosCatalogo();
   const resumen = {};
   for (const p of catalogo) {
     if (!p.subcategoria) continue;
@@ -140,12 +136,12 @@ function obtenerResumenCatalogo() {
 }
 
 function obtenerTodoElConocimiento() {
-  const catalogo = cargarCatalogo();
+  const catalogo = datos.getTodosCatalogo();
   return [...new Set(catalogo.map(p => p.conocimiento_tecnico).filter(Boolean))].slice(0, 10);
 }
 
 function getTodos() {
-  return cargarCatalogo();
+  return datos.getTodosCatalogo();
 }
 
 module.exports = { buscar, buscarConocimiento, buscarPorSubcategorias, listarSubcategorias, obtenerResumenCatalogo, obtenerTodoElConocimiento, getTodos };
