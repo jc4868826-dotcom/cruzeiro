@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Cruzeiro FunnelOS</title>
+  <meta name="theme-color" content="#0d5c8c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Cruzeiro OS">
+  <link rel="manifest" href="/manifest.json">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            ocean: {
+              DEFAULT: '#0d5c8c',
+              hover: '#0a4a73',
+              light: '#e8f4fd',
+              50: '#f0f8ff',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #f1f5f9; }
+
+    /* Nav link base styles */
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #475569;
+      text-decoration: none;
+      border-left: 3px solid transparent;
+      transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+      cursor: pointer;
+      user-select: none;
+    }
+    .nav-link:hover {
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .nav-link svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      color: #94a3b8;
+      transition: color 0.15s;
+    }
+    .nav-link:hover svg {
+      color: #64748b;
+    }
+
+    /* Active nav state */
+    .nav-active {
+      background-color: #e8f4fd !important;
+      border-left-color: #0d5c8c !important;
+      color: #0d5c8c !important;
+      font-weight: 600;
+      border-radius: 0 8px 8px 0;
+      margin-left: -12px;
+      padding-left: 9px;
+    }
+    .nav-active svg {
+      color: #0d5c8c !important;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="font-sans">
+  <div class="flex h-screen overflow-hidden">
+
+    <!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
+
+      <!-- Logo -->
+      <div class="px-6 py-5 border-b border-slate-200 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-[#0d5c8c] flex items-center justify-center font-bold text-white text-lg shadow-sm">C</div>
+        <div>
+          <p class="font-bold text-slate-800 text-sm leading-tight">Cruzeiro</p>
+          <p class="text-xs text-[#0d5c8c] font-semibold">FunnelOS</p>
+        </div>
+      </div>
+
+      <!-- Nav -->
+      <nav class="flex-1 overflow-y-auto px-3 py-4">
+
+        <!-- Sección PANEL -->
+        <p class="px-3 text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2 mt-1">Panel</p>
+
+        <div class="space-y-0.5">
+          <a href="#dashboard" data-page="dashboard" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+            </svg>
+            Dashboard
+          </a>
+
+          <a href="#productos" data-page="productos" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+            </svg>
+            Productos
+          </a>
+
+          <a href="#clientes" data-page="clientes" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            Clientes
+          </a>
+
+          <a href="#ventas" data-page="ventas" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+            Ventas
+          </a>
+
+          <a href="#pedidos" data-page="pedidos" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+            </svg>
+            Pedidos
+          </a>
+
+          <a href="#leads" data-page="leads" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Leads
+          </a>
+
+          <a href="#pipeline" data-page="pipeline" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
+            </svg>
+            Pipeline
+          </a>
+
+          <a href="#agenda" data-page="agenda" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+            </svg>
+            Agenda
+          </a>
+
+          <a href="#campanas" data-page="campanas" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/>
+            </svg>
+            Campañas HSM
+          </a>
+        </div>
+
+        <!-- Sección HERRAMIENTAS -->
+        <p id="nav-p-herramientas" class="px-3 text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2 mt-5">Herramientas</p>
+        <div id="nav-links-herramientas" class="space-y-0.5">
+          <a href="#chat-test" data-page="chat-test" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+            Chat de Prueba
+          </a>
+
+          <a href="#archivos" data-page="archivos" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            Archivos / CSV
+          </a>
+        </div>
+
+        <!-- Sección SISTEMA -->
+        <p id="nav-p-sistema" class="px-3 text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2 mt-5">Sistema</p>
+        <div id="nav-links-sistema" class="space-y-0.5">
+          <a href="#configuracion" data-page="configuracion" class="nav-link">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Configuración
+          </a>
+        </div>
+      </nav>
+
+      <!-- Footer user info -->
+      <div id="sidebar-user" class="p-4 border-t border-slate-200 flex items-center gap-3 min-h-[68px]">
+        <!-- populated by app.js -->
+      </div>
+    </aside>
+
+    <!-- ─── Main ─────────────────────────────────────────────────────────── -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Topbar -->
+      <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between shrink-0">
+        <div>
+          <h1 id="page-title" class="text-lg font-bold text-slate-800">Dashboard</h1>
+          <p id="page-subtitle" class="text-sm text-slate-500 mt-0.5">Resumen del ecosistema WhatsApp</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="status-badge" class="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-full font-medium flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+            Bot activo
+          </span>
+          <button onclick="logout()"
+            class="text-sm text-slate-500 hover:text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition flex items-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+            </svg>
+            Cerrar sesión
+          </button>
+        </div>
+      </header>
+
+      <!-- Vista dinámica -->
+      <div id="view-container" class="flex-1 overflow-y-auto p-8">
+        <div class="flex justify-center items-center h-32">
+          <div class="text-slate-400 text-sm">Cargando...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/dashboard.js"></script>
+  <script src="/js/leads.js"></script>
+  <script src="/js/catalogo.js"></script>
+  <script src="/js/campanas.js"></script>
+  <script src="/js/configuracion.js"></script>
+  <script src="/js/chat-test.js"></script>
+  <script src="/js/archivos.js"></script>
+  <script src="/js/pipeline.js"></script>
+  <script src="/js/agenda.js"></script>
+  <script src="/js/productos.js"></script>
+  <script src="/js/clientes.js"></script>
+  <script src="/js/ventas.js"></script>
+  <script src="/js/pedidos.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>FunnelOS Cruzeiro — Seguimiento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *{font-family:'Inter',sans-serif}
+  body{background:#FAFAFA;color:#111827}
+  .card{background:#fff;border:1px solid #E5E7EB;border-radius:1rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:9999px;font-size:.75rem;font-weight:500}
+  .badge-indigo{background:#EEF2FF;color:#4F46E5}
+  .badge-red{background:#FEF2F2;color:#DC2626}
+  .badge-green{background:#F0FDF4;color:#16A34A}
+  .badge-yellow{background:#FEFCE8;color:#CA8A04}
+  .badge-gray{background:#F3F4F6;color:#6B7280}
+  .kpi-card{padding:1.25rem 1.5rem}
+  .kpi-val{font-size:1.875rem;font-weight:700;color:#111827;line-height:1}
+  .kpi-label{font-size:.8rem;color:#6B7280;margin-top:.25rem}
+  #gantt-wrap{overflow-x:auto;overflow-y:visible}
+  .gantt-grid{display:grid;min-width:max-content}
+  .gantt-header-cell{font-size:.65rem;color:#9CA3AF;text-align:center;padding:2px 0;border-right:1px solid #F3F4F6;white-space:nowrap}
+  .gantt-header-cell.weekend{background:#F9FAFB}
+  .gantt-header-cell.today-col{background:#EEF2FF;color:#4F46E5;font-weight:600}
+  .gantt-row{display:contents}
+  .gantt-label{font-size:.72rem;color:#374151;padding:3px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:pointer;align-self:center}
+  .gantt-label:hover{color:#4F46E5}
+  .gantt-cell{position:relative;border-right:1px solid #F9FAFB}
+  .gantt-cell.weekend{background:#FAFAFA}
+  .gantt-cell.today-col{background:#EEF2FF22}
+  .today-line{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#4F46E5;z-index:10;pointer-events:none}
+  .gantt-bar{position:absolute;top:4px;bottom:4px;border-radius:4px;opacity:.85;cursor:pointer;transition:opacity .15s}
+  .gantt-bar:hover{opacity:1}
+  .phase-header-row{background:#F9FAFB;font-size:.7rem;font-weight:600;color:#6B7280;letter-spacing:.05em;text-transform:uppercase;padding:4px 8px;grid-column:1/-1}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:50;align-items:center;justify-content:center}
+  .modal-overlay.open{display:flex}
+  .modal-box{background:#fff;border-radius:1rem;width:min(600px,95vw);max-height:90vh;overflow-y:auto;padding:1.75rem;box-shadow:0 20px 60px rgba(0,0,0,.15)}
+  input,select,textarea{border:1px solid #E5E7EB;border-radius:.5rem;padding:.45rem .75rem;font-size:.875rem;width:100%;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:#4F46E5;box-shadow:0 0 0 3px #EEF2FF}
+  .btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1rem;border-radius:.5rem;font-size:.875rem;font-weight:500;cursor:pointer;transition:all .15s}
+  .btn-primary{background:#4F46E5;color:#fff}
+  .btn-primary:hover{background:#4338CA}
+  .btn-ghost{background:#F3F4F6;color:#374151}
+  .btn-ghost:hover{background:#E5E7EB}
+  .btn-danger{background:#FEF2F2;color:#DC2626}
+  .btn-danger:hover{background:#FEE2E2}
+  .slider-wrap input[type=range]{padding:0;border:none;box-shadow:none;accent-color:#4F46E5}
+  .slider-wrap input[type=range]:focus{box-shadow:none;border:none}
+  .tab-btn{padding:.4rem 1rem;border-radius:.5rem;font-size:.85rem;font-weight:500;cursor:pointer;color:#6B7280;transition:all .15s}
+  .tab-btn.active{background:#EEF2FF;color:#4F46E5}
+  .tab-btn:hover:not(.active){background:#F3F4F6}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:.75rem;font-weight:600;color:#6B7280;text-align:left;padding:.5rem .75rem;border-bottom:1px solid #E5E7EB}
+  td{font-size:.8rem;color:#374151;padding:.5rem .75rem;border-bottom:1px solid #F3F4F6}
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- BANNER CAMBIO DE CONTRASEÑA -->
+<div id="pwd-banner" class="hidden bg-amber-50 border-b border-amber-200 px-6 py-2.5 flex items-center justify-between gap-4">
+  <p class="text-sm text-amber-800 font-medium">Estás usando una contraseña temporal. Cámbiala antes de continuar.</p>
+  <button onclick="openPwdModal()" class="text-sm font-semibold text-amber-700 underline whitespace-nowrap">Cambiar ahora</button>
+</div>
+
+<!-- HEADER -->
+<div class="border-b border-gray-100 bg-white sticky top-0 z-20">
+  <div class="max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
+    <div class="flex items-center gap-6">
+      <div>
+        <h1 class="text-base font-semibold text-gray-900 leading-tight">FunnelOS Cruzeiro — Seguimiento</h1>
+        <p class="text-xs text-gray-400" id="header-date"></p>
+      </div>
+      <nav class="hidden md:flex items-center gap-1">
+        <button class="tab-btn active" id="tab-dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+        <button class="tab-btn hidden" id="tab-usuarios" onclick="switchTab('usuarios')">Usuarios</button>
+      </nav>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="days-badge" class="badge badge-indigo text-sm font-semibold px-3 py-1"></span>
+      <button onclick="exportCSV()" class="btn btn-ghost text-xs hidden md:inline-flex">⬇ CSV</button>
+      <div class="flex items-center gap-2 border-l border-gray-100 pl-3">
+        <span class="text-sm text-gray-600 hidden sm:block" id="user-nombre"></span>
+        <button onclick="doLogout()" class="btn btn-ghost text-xs">Salir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD TAB -->
+<div id="view-dashboard" class="max-w-screen-2xl mx-auto px-6 py-6 space-y-6">
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="card kpi-card"><div class="kpi-val" id="kpi-avance">—</div><div class="kpi-label">Avance global</div></div>
+    <div class="card kpi-card"><div class="kpi-val" id="kpi-completadas">—</div><div class="kpi-label">Tareas completadas</div></div>
+    <div class="card kpi-card"><div class="kpi-val" id="kpi-atrasadas">—</div><div class="kpi-label">Tareas atrasadas</div></div>
+    <div class="card kpi-card"><div class="kpi-val text-base leading-snug" id="kpi-hito">—</div><div class="kpi-label">Próximo hito</div></div>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="card p-5"><p class="text-sm font-semibold text-gray-700 mb-3">Avance por fase</p><div style="height:220px"><canvas id="chart-fase"></canvas></div></div>
+    <div class="card p-5"><p class="text-sm font-semibold text-gray-700 mb-3">Avance por responsable</p><div style="height:220px"><canvas id="chart-resp"></canvas></div></div>
+  </div>
+
+  <div class="card p-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+      <input id="f-texto" placeholder="Buscar tarea…" oninput="renderGantt()"/>
+      <select id="f-fase" onchange="renderGantt()"><option value="">Todas las fases</option></select>
+      <select id="f-resp" onchange="renderGantt()">
+        <option value="">Todos los responsables</option>
+        <option>Proveedor</option><option>Cruzeiro</option><option>Ambos</option>
+      </select>
+      <select id="f-estado" onchange="renderGantt()">
+        <option value="">Todos los estados</option>
+        <option>Pendiente</option><option>En progreso</option><option>Completado</option><option>Bloqueado</option>
+      </select>
+      <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        <input type="checkbox" id="f-atrasadas" onchange="renderGantt()" class="w-auto" style="width:auto;padding:0;border:none"/>
+        Solo atrasadas
+      </label>
+    </div>
+  </div>
+
+  <div class="card p-0 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100"><p class="text-sm font-semibold text-gray-700">Carta Gantt</p></div>
+    <div id="gantt-wrap" class="p-3"></div>
+  </div>
+
+  <div class="card p-5">
+    <p class="text-sm font-semibold text-gray-700 mb-2">Resumen ejecutivo</p>
+    <p id="resumen" class="text-sm text-gray-600 leading-relaxed"></p>
+  </div>
+
+</div>
+
+<!-- USUARIOS TAB -->
+<div id="view-usuarios" class="hidden max-w-screen-2xl mx-auto px-6 py-6 space-y-6">
+
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-gray-700 mb-4">Nuevo usuario</h2>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+      <div><label class="text-xs text-gray-500 mb-1 block">Usuario</label><input id="nu-usuario" placeholder="usuario"/></div>
+      <div><label class="text-xs text-gray-500 mb-1 block">Nombre</label><input id="nu-nombre" placeholder="Nombre Apellido"/></div>
+      <div><label class="text-xs text-gray-500 mb-1 block">Clave temporal</label><input id="nu-pass" type="password" placeholder="••••••"/></div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1 block">Rol</label>
+        <select id="nu-rol"><option value="usuario">Usuario</option><option value="admin">Admin</option></select>
+      </div>
+      <button onclick="crearUsuario()" class="btn btn-primary">Crear</button>
+    </div>
+    <p id="nu-error" class="hidden text-xs text-red-600 mt-2"></p>
+  </div>
+
+  <div class="card p-0 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100"><p class="text-sm font-semibold text-gray-700">Usuarios del sistema</p></div>
+    <div class="overflow-x-auto">
+      <table id="usuarios-table">
+        <thead><tr>
+          <th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Creado</th><th>Acciones</th>
+        </tr></thead>
+        <tbody id="usuarios-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL TAREA -->
+<div id="modal-overlay" class="modal-overlay" onclick="closeModal(event)">
+  <div id="modal-box" class="modal-box">
+    <div class="flex items-start justify-between mb-4">
+      <div class="flex-1 pr-4">
+        <p class="text-xs font-medium text-indigo-600 mb-1" id="m-fase"></p>
+        <h2 class="text-base font-semibold text-gray-900 leading-snug" id="m-tarea"></h2>
+      </div>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3 text-sm mb-4">
+      <div><span class="text-gray-400 text-xs">Responsable</span><br/><span class="font-medium" id="m-resp"></span></div>
+      <div><span class="text-gray-400 text-xs">Inicio</span><br/><span id="m-inicio"></span></div>
+      <div><span class="text-gray-400 text-xs">Término</span><br/><span id="m-termino"></span></div>
+    </div>
+
+    <div id="m-riesgo-wrap" class="hidden mb-4 p-3 bg-yellow-50 rounded-lg text-sm text-yellow-800 border border-yellow-200">
+      <span id="m-riesgo"></span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div>
+        <label class="text-xs text-gray-500 mb-1 block">Estado</label>
+        <select id="m-estado" onchange="patchTarea()">
+          <option>Pendiente</option><option>En progreso</option><option>Completado</option><option>Bloqueado</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1 block">Avance: <span id="m-avance-val">0</span>%</label>
+        <div class="slider-wrap"><input type="range" id="m-avance" min="0" max="100" step="5" oninput="document.getElementById('m-avance-val').textContent=this.value" onchange="patchTarea()"/></div>
+      </div>
+    </div>
+
+    <div class="border-t border-gray-100 pt-4 mb-4">
+      <p class="text-xs font-semibold text-gray-500 mb-2">Nueva observación</p>
+      <textarea id="m-obs" rows="2" placeholder="Observación…"></textarea>
+      <button onclick="addBitacora()" class="btn btn-primary mt-2 text-sm">Agregar</button>
+    </div>
+
+    <div id="m-bitacora" class="space-y-2"></div>
+  </div>
+</div>
+
+<!-- MODAL CAMBIO DE CONTRASEÑA -->
+<div id="pwd-overlay" class="modal-overlay" onclick="closePwdModal(event)">
+  <div class="modal-box" style="max-width:420px">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-base font-semibold text-gray-900">Cambiar contraseña</h2>
+      <button onclick="closePwdModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+    </div>
+    <div class="space-y-3">
+      <div><label class="text-xs text-gray-500 mb-1 block">Contraseña actual</label><input id="pwd-actual" type="password" placeholder="••••••"/></div>
+      <div><label class="text-xs text-gray-500 mb-1 block">Nueva contraseña (mín. 6 caracteres)</label><input id="pwd-nueva" type="password" placeholder="••••••"/></div>
+    </div>
+    <p id="pwd-error" class="hidden text-xs text-red-600 mt-2"></p>
+    <p id="pwd-ok" class="hidden text-xs text-green-600 mt-2">Contraseña actualizada correctamente.</p>
+    <button onclick="cambiarPassword()" class="btn btn-primary mt-4 w-full justify-center">Guardar</button>
+  </div>
+</div>
+
+<!-- MODAL EDITAR USUARIO -->
+<div id="edit-u-overlay" class="modal-overlay" onclick="closeEditUser(event)">
+  <div class="modal-box" style="max-width:440px">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-base font-semibold text-gray-900">Editar usuario</h2>
+      <button onclick="closeEditUser()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+    </div>
+    <input type="hidden" id="eu-id"/>
+    <div class="space-y-3">
+      <div><label class="text-xs text-gray-500 mb-1 block">Nombre</label><input id="eu-nombre"/></div>
+      <div><label class="text-xs text-gray-500 mb-1 block">Rol</label><select id="eu-rol"><option value="usuario">Usuario</option><option value="admin">Admin</option></select></div>
+      <div><label class="text-xs text-gray-500 mb-1 block">Nueva clave temporal (dejar vacío para no cambiar)</label><input id="eu-pass" type="password" placeholder="••••••"/></div>
+    </div>
+    <p id="eu-error" class="hidden text-xs text-red-600 mt-2"></p>
+    <div class="flex gap-2 mt-4">
+      <button onclick="guardarUsuario()" class="btn btn-primary flex-1 justify-center">Guardar</button>
+      <button onclick="closeEditUser()" class="btn btn-ghost">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const GOLIVE = '2026-08-03';
+const GANTT_START = '2026-07-13';
+const GANTT_END = '2026-11-10';
+
+const FASE_COLORS = {
+  'FASE 0':'#6366F1','FASE 1':'#8B5CF6','FASE 2':'#EC4899',
+  'FASE 3':'#F59E0B','FASE 4':'#10B981','FASE 5':'#3B82F6','FASE 6':'#EF4444',
+};
+
+let me = null;
+let allTareas = [];
+let kpis = {};
+let activeId = null;
+let chartFase = null, chartResp = null;
+let currentTab = 'dashboard';
+
+function hoy() { return new Date().toISOString().slice(0,10); }
+function fmt(d) { if (!d) return '—'; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
+function diffDays(a,b) { return Math.round((new Date(b)-new Date(a))/86400000); }
+
+async function api(p, opts={}) {
+  const r = await fetch('/seguimiento'+p, { headers:{'Content-Type':'application/json'}, ...opts });
+  if (r.status === 401) { window.location.href='/seguimiento/login'; throw new Error('No autenticado'); }
+  if (!r.ok) { const d=await r.json().catch(()=>({error:r.statusText})); throw new Error(d.error||r.statusText); }
+  return r.json();
+}
+
+async function init() {
+  me = await api('/api/auth/me');
+  document.getElementById('user-nombre').textContent = me.nombre;
+  if (me.debeCambiarPassword) document.getElementById('pwd-banner').classList.remove('hidden');
+  if (me.rol === 'admin') document.getElementById('tab-usuarios').classList.remove('hidden');
+  const [t, k] = await Promise.all([api('/api/tareas'), api('/api/kpis')]);
+  allTareas = t; kpis = k;
+  renderKpis(); renderCharts(); renderGantt(); renderResumen(); populateFaseFilter();
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('view-dashboard').classList.toggle('hidden', tab !== 'dashboard');
+  document.getElementById('view-usuarios').classList.toggle('hidden', tab !== 'usuarios');
+  document.getElementById('tab-dashboard').classList.toggle('active', tab === 'dashboard');
+  document.getElementById('tab-usuarios').classList.toggle('active', tab === 'usuarios');
+  if (tab === 'usuarios') loadUsuarios();
+}
+
+async function doLogout() {
+  await fetch('/seguimiento/api/auth/logout', { method:'POST' });
+  window.location.href = '/seguimiento/login';
+}
+
+function openPwdModal() {
+  document.getElementById('pwd-actual').value = '';
+  document.getElementById('pwd-nueva').value = '';
+  document.getElementById('pwd-error').classList.add('hidden');
+  document.getElementById('pwd-ok').classList.add('hidden');
+  document.getElementById('pwd-overlay').classList.add('open');
+}
+function closePwdModal(e) {
+  if (e && e.target !== document.getElementById('pwd-overlay')) return;
+  document.getElementById('pwd-overlay').classList.remove('open');
+}
+async function cambiarPassword() {
+  const errEl = document.getElementById('pwd-error');
+  const okEl = document.getElementById('pwd-ok');
+  errEl.classList.add('hidden'); okEl.classList.add('hidden');
+  try {
+    await api('/api/auth/password', { method:'POST', body: JSON.stringify({
+      passwordActual: document.getElementById('pwd-actual').value,
+      passwordNueva: document.getElementById('pwd-nueva').value,
+    })});
+    me.debeCambiarPassword = false;
+    document.getElementById('pwd-banner').classList.add('hidden');
+    okEl.classList.remove('hidden');
+    setTimeout(() => document.getElementById('pwd-overlay').classList.remove('open'), 1500);
+  } catch(err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+function renderKpis() {
+  document.getElementById('kpi-avance').textContent = kpis.avanceGlobal+'%';
+  document.getElementById('kpi-completadas').textContent = `${kpis.tareasCompletadas} / ${kpis.tareasTotal}`;
+  const atEl = document.getElementById('kpi-atrasadas');
+  atEl.textContent = kpis.tareasAtrasadas;
+  atEl.style.color = kpis.tareasAtrasadas>0 ? '#DC2626' : '#16A34A';
+  document.getElementById('kpi-hito').textContent = kpis.proximoHito
+    ? `${kpis.proximoHito.tarea.slice(0,40)}… · ${fmt(kpis.proximoHito.termino)}` : 'Sin hitos pendientes';
+  const days = diffDays(hoy(), GOLIVE);
+  const badge = document.getElementById('days-badge');
+  badge.textContent = days>0 ? `${days} días para Go-live` : days===0 ? '¡Hoy es Go-live!' : 'Go-live pasado';
+  badge.className = 'badge '+(days<=0?'badge-green':days<=7?'badge-red':'badge-indigo')+' text-sm font-semibold px-3 py-1';
+  const d = new Date();
+  document.getElementById('header-date').textContent = d.toLocaleDateString('es-CL',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+}
+
+function renderCharts() {
+  const fLabels = kpis.avancePorFase.map(f=>f.fase.replace('Etapa 2: CRM Mayorista (paralelo)','CRM Mayorista'));
+  const fVals = kpis.avancePorFase.map(f=>f.avance);
+  const fColors = kpis.avancePorFase.map(f=>{
+    const key=Object.keys(FASE_COLORS).find(k=>f.fase.startsWith(k));
+    return key?FASE_COLORS[key]:'#9CA3AF';
+  });
+  if (chartFase) chartFase.destroy();
+  chartFase = new Chart(document.getElementById('chart-fase'),{
+    type:'doughnut', data:{labels:fLabels,datasets:[{data:fVals,backgroundColor:fColors,borderWidth:2,borderColor:'#fff'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{boxWidth:10,font:{size:11}}}}},
+  });
+  const rLabels = kpis.avancePorResponsable.map(r=>r.responsable);
+  const rVals = kpis.avancePorResponsable.map(r=>r.avance);
+  if (chartResp) chartResp.destroy();
+  chartResp = new Chart(document.getElementById('chart-resp'),{
+    type:'bar', data:{labels:rLabels,datasets:[{label:'Avance %',data:rVals,backgroundColor:'#4F46E5',borderRadius:6}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{max:100,ticks:{font:{size:11}}},x:{ticks:{font:{size:11}}}}},
+  });
+}
+
+function populateFaseFilter() {
+  const sel = document.getElementById('f-fase');
+  const fases = [...new Set(allTareas.map(t=>t.fase))];
+  sel.innerHTML = '<option value="">Todas las fases</option>'+fases.map(f=>`<option>${f}</option>`).join('');
+}
+
+function filteredTareas() {
+  const txt = document.getElementById('f-texto').value.toLowerCase();
+  const fase = document.getElementById('f-fase').value;
+  const resp = document.getElementById('f-resp').value;
+  const estado = document.getElementById('f-estado').value;
+  const atrasadas = document.getElementById('f-atrasadas').checked;
+  const h = hoy();
+  return allTareas.filter(t=>{
+    if (txt && !t.tarea.toLowerCase().includes(txt)) return false;
+    if (fase && t.fase!==fase) return false;
+    if (resp && t.responsable!==resp) return false;
+    if (estado && t.estado!==estado) return false;
+    if (atrasadas && !(t.estado!=='Completado' && t.termino<h)) return false;
+    return true;
+  });
+}
+
+function renderGantt() {
+  const tareas = filteredTareas();
+  const wrap = document.getElementById('gantt-wrap');
+  if (!tareas.length) { wrap.innerHTML='<p class="text-sm text-gray-400 p-4">Sin tareas.</p>'; return; }
+  const totalDays = diffDays(GANTT_START, GANTT_END)+1;
+  const COL_W=28, LABEL_W=220;
+  const days=[];
+  for (let d=new Date(GANTT_START); diffDays(GANTT_START, d.toISOString().slice(0,10))<=diffDays(GANTT_START,GANTT_END); d.setDate(d.getDate()+1))
+    days.push(new Date(d));
+  const todayIdx = diffDays(GANTT_START, hoy());
+  const cols = `${LABEL_W}px `+days.map(()=>`${COL_W}px`).join(' ');
+  let html = `<div class="gantt-grid" style="grid-template-columns:${cols}">`;
+  html += `<div style="background:#fff;border-bottom:1px solid #F3F4F6;padding:4px 8px;font-size:.65rem;color:#9CA3AF;position:sticky;left:0;z-index:5">Tarea</div>`;
+  days.forEach((d,i)=>{
+    const isW=d.getDay()===0||d.getDay()===6, isT=i===todayIdx;
+    const cls=`gantt-header-cell${isW?' weekend':''}${isT?' today-col':''}`;
+    const label=d.getDate()===1||i===0?`${d.getDate()}/${d.getMonth()+1}`:d.getDate()===15?`${d.getDate()}`:'';
+    html+=`<div class="${cls}">${label}</div>`;
+  });
+  const phases=[...new Set(tareas.map(t=>t.fase))];
+  phases.forEach(fase=>{
+    const faseId=tareas.find(t=>t.fase===fase)?.faseId||'';
+    const color=FASE_COLORS[faseId]||'#9CA3AF';
+    html+=`<div class="phase-header-row" style="color:${color}">${fase}</div>`;
+    tareas.filter(t=>t.fase===fase).forEach(t=>{
+      const startIdx=Math.max(0,diffDays(GANTT_START,t.inicio));
+      const endIdx=Math.min(totalDays-1,diffDays(GANTT_START,t.termino));
+      const barWidth=Math.max(COL_W,(endIdx-startIdx+1)*COL_W);
+      const atrasada=t.estado!=='Completado'&&t.termino<hoy();
+      const barColor=t.estado==='Completado'?'#10B981':atrasada?'#EF4444':color;
+      html+=`<div class="gantt-label" onclick="openModal(${t.id})" title="${t.tarea}">${t.tarea}</div>`;
+      days.forEach((d,i)=>{
+        const isW=d.getDay()===0||d.getDay()===6, isT=i===todayIdx;
+        let inner=isT?'<div class="today-line"></div>':'';
+        if (i===startIdx) inner+=`<div class="gantt-bar" onclick="openModal(${t.id})" style="left:0;width:${barWidth}px;background:${barColor}" title="${t.tarea} — ${t.avance}%"></div>`;
+        html+=`<div class="gantt-cell${isW?' weekend':''}${isT?' today-col':''}" style="height:32px;position:relative">${inner}</div>`;
+      });
+    });
+  });
+  html+='</div>';
+  wrap.innerHTML=html;
+}
+
+function renderResumen() {
+  const h=hoy();
+  const atrasadas=allTareas.filter(t=>t.estado!=='Completado'&&t.termino<h);
+  const enProgreso=allTareas.filter(t=>t.estado==='En progreso');
+  const days=diffDays(h,GOLIVE);
+  let txt=`El proyecto lleva ${kpis.avanceGlobal}% de avance global, con ${kpis.tareasCompletadas} de ${kpis.tareasTotal} tareas completadas.`;
+  if (atrasadas.length) txt+=` Hay ${atrasadas.length} tarea${atrasadas.length>1?'s':''} atrasada${atrasadas.length>1?'s':''}: ${atrasadas.slice(0,3).map(t=>'"'+t.tarea.slice(0,35)+'…"').join(', ')}.`;
+  if (enProgreso.length) txt+=` En progreso: ${enProgreso.length} tarea${enProgreso.length>1?'s':''}.`;
+  if (kpis.proximoHito) txt+=` Próximo hito: "${kpis.proximoHito.tarea.slice(0,50)}" el ${fmt(kpis.proximoHito.termino)}.`;
+  txt+=` Faltan ${days>0?days+' días':'ya pasó el plazo'} para el Go-live (${fmt(GOLIVE)}).`;
+  document.getElementById('resumen').textContent=txt;
+}
+
+function openModal(id) {
+  const t=allTareas.find(x=>x.id===id); if (!t) return;
+  activeId=id;
+  document.getElementById('m-fase').textContent=t.fase;
+  document.getElementById('m-tarea').textContent=t.tarea;
+  document.getElementById('m-resp').textContent=t.responsable;
+  document.getElementById('m-inicio').textContent=fmt(t.inicio);
+  document.getElementById('m-termino').textContent=fmt(t.termino);
+  const rw=document.getElementById('m-riesgo-wrap');
+  if (t.riesgo){document.getElementById('m-riesgo').textContent=t.riesgo;rw.classList.remove('hidden');}
+  else rw.classList.add('hidden');
+  document.getElementById('m-estado').value=t.estado;
+  document.getElementById('m-avance').value=t.avance;
+  document.getElementById('m-avance-val').textContent=t.avance;
+  renderBitacora(t.bitacora);
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function renderBitacora(bits) {
+  const el=document.getElementById('m-bitacora');
+  if (!bits||!bits.length){el.innerHTML='<p class="text-xs text-gray-400">Sin observaciones.</p>';return;}
+  el.innerHTML=[...bits].reverse().map(b=>`
+    <div class="border border-gray-100 rounded-lg p-3">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-xs font-medium text-gray-700">${b.autor}</span>
+        <span class="text-xs text-gray-400">${new Date(b.fecha).toLocaleString('es-CL')}</span>
+      </div>
+      <p class="text-sm text-gray-600">${b.texto}</p>
+    </div>`).join('');
+}
+
+function closeModal(e) {
+  if (e && e.target!==document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+  activeId=null;
+}
+
+async function patchTarea() {
+  if (!activeId) return;
+  const t=await api(`/api/tareas/${activeId}`,{method:'PATCH',body:JSON.stringify({
+    estado:document.getElementById('m-estado').value,
+    avance:Number(document.getElementById('m-avance').value),
+  })});
+  const idx=allTareas.findIndex(x=>x.id===activeId);
+  if (idx!==-1) allTareas[idx]={...allTareas[idx],...t};
+  kpis=await api('/api/kpis');
+  renderKpis(); renderCharts(); renderGantt(); renderResumen();
+}
+
+async function addBitacora() {
+  const texto=document.getElementById('m-obs').value.trim();
+  if (!texto) return alert('Escribe una observación.');
+  const entry=await api(`/api/tareas/${activeId}/bitacora`,{method:'POST',body:JSON.stringify({texto})});
+  const t=allTareas.find(x=>x.id===activeId);
+  if (t){t.bitacora.push(entry);renderBitacora(t.bitacora);}
+  document.getElementById('m-obs').value='';
+}
+
+function exportCSV() {
+  const tareas=filteredTareas();
+  const header=['ID','Fase','Tarea','Responsable','Inicio','Término','Estado','Avance%','Riesgo'];
+  const rows=tareas.map(t=>[t.id,t.fase,`"${t.tarea}"`,t.responsable,t.inicio,t.termino,t.estado,t.avance,t.riesgo||'']);
+  const csv=[header,...rows].map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
+  a.download=`seguimiento-cruzeiro-${hoy()}.csv`;
+  a.click();
+}
+
+// ─── Gestión usuarios ─────────────────────────────────────────────────────────
+
+let usuariosData = [];
+
+async function loadUsuarios() {
+  usuariosData = await api('/api/usuarios');
+  renderUsuarios();
+}
+
+function renderUsuarios() {
+  const tbody = document.getElementById('usuarios-tbody');
+  tbody.innerHTML = usuariosData.map(u=>`
+    <tr>
+      <td class="font-mono text-xs">${u.usuario}</td>
+      <td>${u.nombre}</td>
+      <td><span class="badge ${u.rol==='admin'?'badge-indigo':'badge-gray'}">${u.rol}</span></td>
+      <td><span class="badge ${u.activo?'badge-green':'badge-red'}">${u.activo?'Activo':'Inactivo'}</span></td>
+      <td class="text-gray-400 text-xs">${new Date(u.creadoEn).toLocaleDateString('es-CL')}</td>
+      <td>
+        <div class="flex gap-1">
+          <button onclick="openEditUser(${u.id})" class="btn btn-ghost text-xs py-1 px-2">Editar</button>
+          <button onclick="toggleActivo(${u.id},${!u.activo})" class="btn btn-ghost text-xs py-1 px-2">${u.activo?'Desactivar':'Activar'}</button>
+          <button onclick="eliminarUsuario(${u.id})" class="btn btn-danger text-xs py-1 px-2">Eliminar</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+async function crearUsuario() {
+  const errEl=document.getElementById('nu-error');
+  errEl.classList.add('hidden');
+  try {
+    await api('/api/usuarios',{method:'POST',body:JSON.stringify({
+      usuario:document.getElementById('nu-usuario').value.trim(),
+      nombre:document.getElementById('nu-nombre').value.trim(),
+      password:document.getElementById('nu-pass').value,
+      rol:document.getElementById('nu-rol').value,
+    })});
+    document.getElementById('nu-usuario').value='';
+    document.getElementById('nu-nombre').value='';
+    document.getElementById('nu-pass').value='';
+    await loadUsuarios();
+  } catch(err){
+    errEl.textContent=err.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+function openEditUser(id) {
+  const u=usuariosData.find(x=>x.id===id); if (!u) return;
+  document.getElementById('eu-id').value=u.id;
+  document.getElementById('eu-nombre').value=u.nombre;
+  document.getElementById('eu-rol').value=u.rol;
+  document.getElementById('eu-pass').value='';
+  document.getElementById('eu-error').classList.add('hidden');
+  document.getElementById('edit-u-overlay').classList.add('open');
+}
+function closeEditUser(e) {
+  if (e && e.target!==document.getElementById('edit-u-overlay')) return;
+  document.getElementById('edit-u-overlay').classList.remove('open');
+}
+async function guardarUsuario() {
+  const errEl=document.getElementById('eu-error');
+  errEl.classList.add('hidden');
+  try {
+    const body={
+      nombre:document.getElementById('eu-nombre').value.trim(),
+      rol:document.getElementById('eu-rol').value,
+    };
+    const pass=document.getElementById('eu-pass').value;
+    if (pass) body.resetPassword=pass;
+    await api(`/api/usuarios/${document.getElementById('eu-id').value}`,{method:'PATCH',body:JSON.stringify(body)});
+    document.getElementById('edit-u-overlay').classList.remove('open');
+    await loadUsuarios();
+  } catch(err){
+    errEl.textContent=err.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+async function toggleActivo(id, activo) {
+  await api(`/api/usuarios/${id}`,{method:'PATCH',body:JSON.stringify({activo})});
+  await loadUsuarios();
+}
+
+async function eliminarUsuario(id) {
+  if (!confirm('¿Eliminar este usuario?')) return;
+  try {
+    await api(`/api/usuarios/${id}`,{method:'DELETE'});
+    await loadUsuarios();
+  } catch(err){ alert(err.message); }
+}
+
+init();
+</script>
+</body>
+</html>

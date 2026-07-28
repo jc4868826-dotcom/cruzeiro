@@ -1,0 +1,33 @@
+{
+  "name": "Cruzeiro FunnelOS",
+  "short_name": "Cruzeiro OS",
+  "description": "CRM y gestión de conversaciones WhatsApp para Cruzeiro Gomas",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#0d5c8c",
+  "background_color": "#f1f5f9",
+  "scope": "/",
+  "lang": "es-CL",
+  "icons": [
+    { "src": "/icons/icon-96.png",  "sizes": "96x96",   "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Leads",
+      "short_name": "Leads",
+      "description": "Gestión de clientes y conversaciones",
+      "url": "/#leads",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "description": "Tareas pendientes del equipo comercial",
+      "url": "/#agenda",
+      "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }]
+    }
+  ]
+}

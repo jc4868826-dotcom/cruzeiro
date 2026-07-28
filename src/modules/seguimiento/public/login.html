@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Acceso — FunnelOS Cruzeiro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  *{font-family:'Inter',sans-serif}
+  body{background:#FAFAFA}
+  input{border:1px solid #E5E7EB;border-radius:.5rem;padding:.55rem .85rem;font-size:.9rem;width:100%;outline:none;transition:border .15s,box-shadow .15s}
+  input:focus{border-color:#4F46E5;box-shadow:0 0 0 3px #EEF2FF}
+</style>
+</head>
+<body class="min-h-screen flex items-center justify-center px-4">
+
+<div class="w-full max-w-sm">
+  <div class="text-center mb-8">
+    <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600 mb-4">
+      <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+    </div>
+    <h1 class="text-xl font-semibold text-gray-900">FunnelOS Cruzeiro</h1>
+    <p class="text-sm text-gray-400 mt-1">Panel de Seguimiento</p>
+  </div>
+
+  <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-8">
+    <div id="error-box" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
+
+    <form id="login-form" onsubmit="doLogin(event)" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Usuario</label>
+        <input id="f-usuario" type="text" autocomplete="username" required placeholder="usuario"/>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Contraseña</label>
+        <input id="f-pass" type="password" autocomplete="current-password" required placeholder="••••••••"/>
+      </div>
+      <button type="submit" id="btn-login"
+        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-2.5 rounded-lg transition-colors">
+        Ingresar
+      </button>
+    </form>
+  </div>
+
+  <p class="text-center text-xs text-gray-400 mt-6">Acceso restringido — FunnelOS © 2026</p>
+</div>
+
+<script>
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-login');
+  const errBox = document.getElementById('error-box');
+  btn.textContent = 'Ingresando…';
+  btn.disabled = true;
+  errBox.classList.add('hidden');
+  try {
+    const r = await fetch('/seguimiento/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        usuario: document.getElementById('f-usuario').value.trim(),
+        password: document.getElementById('f-pass').value,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Error al ingresar');
+    window.location.href = '/seguimiento';
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.classList.remove('hidden');
+    btn.textContent = 'Ingresar';
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

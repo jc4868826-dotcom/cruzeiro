@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iniciar sesión — Cruzeiro FunnelOS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            ocean: {
+              DEFAULT: '#0d5c8c',
+              hover: '#0a4a73',
+              light: '#e8f4fd',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #f1f5f9; }
+  </style>
+</head>
+<body class="font-sans min-h-screen flex items-center justify-center p-4">
+
+  <div class="w-full max-w-sm">
+    <!-- Logo -->
+    <div class="flex items-center justify-center gap-3 mb-8">
+      <div class="w-11 h-11 rounded-xl bg-[#0d5c8c] flex items-center justify-center font-bold text-white text-xl shadow-sm">C</div>
+      <div>
+        <p class="font-bold text-slate-800 text-lg leading-tight">Cruzeiro</p>
+        <p class="text-sm text-[#0d5c8c] font-semibold">FunnelOS</p>
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
+      <h1 class="text-xl font-bold text-slate-800 mb-1">Bienvenido</h1>
+      <p class="text-sm text-slate-500 mb-6">Ingresa tus credenciales para continuar</p>
+
+      <!-- Error message -->
+      <div id="error-msg" class="hidden bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-5"></div>
+
+      <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="text-xs font-semibold text-slate-500 block mb-1.5" for="username">Usuario</label>
+          <input
+            id="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            required
+            placeholder="Ej: admin"
+            class="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:border-[#0d5c8c] focus:ring-2 focus:ring-[#0d5c8c]/15 transition"
+          >
+        </div>
+        <div>
+          <label class="text-xs font-semibold text-slate-500 block mb-1.5" for="password">Contraseña</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            placeholder="••••••••"
+            class="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm text-slate-800 placeholder-slate-300 focus:outline-none focus:border-[#0d5c8c] focus:ring-2 focus:ring-[#0d5c8c]/15 transition"
+          >
+        </div>
+
+        <button
+          id="submit-btn"
+          type="submit"
+          class="w-full bg-[#0d5c8c] hover:bg-[#0a4a73] active:bg-[#083d60] text-white font-semibold text-sm py-2.5 rounded-lg transition mt-2 flex items-center justify-center gap-2"
+        >
+          <span id="btn-text">Iniciar sesión</span>
+          <svg id="btn-spinner" class="hidden w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+        </button>
+      </form>
+    </div>
+
+    <!-- Demo hint -->
+    <p class="text-center text-xs text-slate-400 mt-5">
+      Usuario demo: <span class="font-semibold text-slate-500">admin</span> / <span class="font-semibold text-slate-500">admin123</span>
+    </p>
+  </div>
+
+  <script>
+    // If already authenticated, redirect
+    fetch('/api/auth/me').then(r => {
+      if (r.ok) window.location.href = '/#dashboard';
+    }).catch(() => {});
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      const errorEl = document.getElementById('error-msg');
+      const btn = document.getElementById('submit-btn');
+      const btnText = document.getElementById('btn-text');
+      const spinner = document.getElementById('btn-spinner');
+
+      // Reset error
+      errorEl.classList.add('hidden');
+      errorEl.textContent = '';
+
+      // Loading state
+      btn.disabled = true;
+      btnText.textContent = 'Ingresando...';
+      spinner.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          window.location.href = '/#dashboard';
+        } else {
+          errorEl.textContent = data.error || data.mensaje || 'Credenciales incorrectas. Intenta de nuevo.';
+          errorEl.classList.remove('hidden');
+        }
+      } catch (err) {
+        errorEl.textContent = 'Error de conexión. Verifica que el servidor esté activo.';
+        errorEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Iniciar sesión';
+        spinner.classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
