@@ -52,6 +52,14 @@ async function procesarMensajeWhatsApp(phone, texto, value) {
 
     const resultado = await botService.procesarMensaje(phone, texto, conversacionExistente, { canal: 'whatsapp' });
 
+    console.log('[webhook] Resultado:', JSON.stringify({
+      tieneRespuesta: !!resultado?.respuesta,
+      tieneConversacion: !!resultado?.conversacion,
+      leadId: resultado?.conversacion?.lead_id,
+      leadUpdate: resultado?.leadUpdate,
+      estado: resultado?.estado,
+    }).slice(0, 300));
+
     if (resultado?.respuesta) {
       await whatsappAdapter.enviarMensaje(phone, resultado.respuesta);
       console.log('[webhook] Respuesta enviada a:', phone);

@@ -474,18 +474,32 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
   const conversacion = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
-  if (Object.keys(leadUpdate).length > 0) {
-    try {
-      const todosLeads = await db.getAll('leads');
-      const leadExistente = todosLeads.find(l => l.phone === phone || l.telefono === phone);
-      const leadId = conversacion?.lead_id || leadExistente?.id;
-      if (leadId) {
+  try {
+    const todosLeads = await db.getAll('leads');
+    const leadExistente = todosLeads.find(l => l.phone === phone || l.telefono === phone);
+    const leadId = conversacion?.lead_id || leadExistente?.id;
+    if (leadId) {
+      if (Object.keys(leadUpdate).length > 0) {
         await db.update('leads', leadId, leadUpdate);
         console.log('[bot] Lead actualizado:', leadId, JSON.stringify(leadUpdate).slice(0, 100));
       }
-    } catch (e) {
-      console.error('[bot] Error grabando lead:', e.message);
+    } else {
+      const nuevoLead = await db.save('leads', {
+        phone,
+        telefono: phone,
+        nombre: leadUpdate.nombre || 'Cliente WhatsApp',
+        origen: 'whatsapp',
+        estado: 'Nuevo',
+        bot_activo: true,
+        ...leadUpdate,
+      });
+      console.log('[bot] Lead creado:', nuevoLead.id, JSON.stringify(leadUpdate).slice(0, 100));
+      if (conversacion?.id) {
+        await db.update('conversaciones', conversacion.id, { lead_id: nuevoLead.id });
+      }
     }
+  } catch (e) {
+    console.error('[bot] Error grabando lead:', e.message);
   }
   return { respuesta, derivar: false, conversacion, leadUpdate, estado: getEstado(phone) };
 }
