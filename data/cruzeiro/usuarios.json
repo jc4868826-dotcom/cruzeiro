@@ -1,1 +1,98 @@
-[]
+[
+  {
+    "id": "admin",
+    "username": "admin",
+    "nombre": "Administrador",
+    "password": "$2a$10$jK68KHWH8hne8s6Y2nJKIO/qjRfXootrdx6gwugIcttN3azezMHj2",
+    "rol": "admin",
+    "activo": true
+  },
+  {
+    "id": "marcelis.arguelles",
+    "username": "marcelis.arguelles",
+    "nombre": "Marcelis Arguelles",
+    "email": "marguelles@cruzeiroempresas.cl",
+    "fono": "+56998749231",
+    "password": "$2a$10$cfulCiCEEdBHASdt2J6sQOb2mb7auAC3H69PDg1UFWGb8kNB2H.0u",
+    "rol": "usuario",
+    "canal": "ecommerce",
+    "activo": true
+  },
+  {
+    "id": "mauricio.santibanez",
+    "username": "mauricio.santibanez",
+    "nombre": "Mauricio Santibañez",
+    "email": "msantibanez@cruzeirogomas.cl",
+    "fono": "+56998749231",
+    "password": "$2a$10$PJ0KdpmYw76.pzfGv3E2ieYKr59TCzJgsPCpnqEwV0r1ToeMoXLBK",
+    "rol": "usuario",
+    "canal": "ecommerce",
+    "activo": true
+  },
+  {
+    "id": "jaime.cornejo",
+    "username": "jaime.cornejo",
+    "nombre": "Jaime Cornejo",
+    "email": "jcornejo@cruzeiroempresas.cl",
+    "fono": "+56995626946",
+    "password": "$2a$10$AO6LsQ/akDlVzCF0p3l42O0VljuapX8sojilJxSfs93hwp7k6vY0y",
+    "rol": "usuario",
+    "canal": "ecommerce",
+    "activo": true
+  },
+  {
+    "id": "irma.jara",
+    "username": "irma.jara",
+    "nombre": "Irma Jara",
+    "email": "i.jara@cruzeirogomas.cl",
+    "fono": "+56933826837",
+    "password": "$2a$10$PRMs8UoGjwH8EvhvkumHvOM6maZkOWpK5kcRy.vj5usX9O64nRGV2",
+    "rol": "usuario",
+    "canal": "mayorista",
+    "activo": true
+  },
+  {
+    "id": "marcos.diamond",
+    "username": "marcos.diamond",
+    "nombre": "Marcos Diamond",
+    "email": "mdiamond@cruzeirogomas.cl",
+    "fono": "+56975681156",
+    "password": "$2a$10$rl6eJyujqd0T/7/Ttbpnbukdex5T7KBcVTQCFsjd0NdjuBTj.aNnS",
+    "rol": "usuario",
+    "canal": "mayorista",
+    "activo": true
+  },
+  {
+    "id": "nicolas.pacheco",
+    "username": "nicolas.pacheco",
+    "nombre": "Nicolás Pacheco",
+    "email": "npacheco@cruzeiroempresas.cl",
+    "fono": "+56933826837",
+    "password": "$2a$10$BKnLZuBEUFXLc20tre3/pelbFcdp./QTApn6r7MLS2hDWs/SuS.NK",
+    "rol": "usuario",
+    "canal": "mayorista",
+    "activo": true
+  },
+  {
+    "id": "alejandro.oxman",
+    "username": "alejandro.oxman",
+    "nombre": "Alejandro Oxman",
+    "email": "aoxman@cruzeiroempresas.cl",
+    "fono": "+56932327146",
+    "password": "$2a$10$k6/T0t.b9W5LXBFA22XEQOfFqgI99/um373YeYitqZBKSy8g3DY1C",
+    "rol": "usuario",
+    "canal": "mayorista",
+    "activo": true
+  },
+  {
+    "id": "cynthia.romo",
+    "username": "cynthia.romo",
+    "nombre": "Cynthia Romo",
+    "email": "cromos@cruzeiroempresas.cl",
+    "fono": "+56932327135",
+    "password": "$2a$10$Lvu6o/113YqHaUAcDwLx0eSQlqub.UOiyDgAgpi6b/mQp620SBfXK",
+    "rol": "usuario",
+    "canal": "mayorista",
+    "activo": true
+  }
+]
