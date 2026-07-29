@@ -7,7 +7,6 @@ const clarityAdapter = require('../../integrations/clarityAdapter');
 const transbankAdapter = require('../../integrations/transbankAdapter');
 const khipuAdapter = require('../../integrations/khipuAdapter');
 const whatsappAdapter = require('../../integrations/whatsappAdapter');
-const { clasificarPorCanal, determinarBotMode } = require('../modules/canales/canal.classifier');
 const { procesarContactoMayorista } = require('../modules/alertas/alerta.service');
 const { META_VERIFY_TOKEN } = require('../config');
 const logger = require('../utils/logger');

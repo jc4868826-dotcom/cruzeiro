@@ -81,7 +81,6 @@ function buscar(query) {
   if (!tokens.length) return [];
 
   const scored = catalogo
-    .filter(p => p.stock === null || p.stock > 0)
     .map(p => {
       const texto = [p.nombre_web, p.descripcion, p.subcategoria, p.categoria, p.familia, p.padre_familia, p.atributos]
         .filter(Boolean).join(' ').toLowerCase()

@@ -11,20 +11,17 @@ const ETAPAS = ['Nuevo', 'Contactado', 'Cotizado', 'Pedido Enviado', 'Cerrado', 
 // GET /api/pipeline — leads grouped by estado
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const { segmento, asignado_a } = req.query;
+    const { segmento, ejecutivo_asignado } = req.query;
     const usuario = req.session.usuario;
 
     let leads = await db.getAll('leads');
 
     if (segmento) leads = leads.filter(l => l.segmento === segmento);
-    if (asignado_a) leads = leads.filter(l => l.asignado_a === asignado_a);
+    if (ejecutivo_asignado) leads = leads.filter(l => l.ejecutivo_asignado === ejecutivo_asignado);
 
     // Non-admin users only see their own leads
     if (usuario && usuario.rol !== 'admin') {
-      leads = leads.filter(l =>
-        l.ejecutivo_asignado === usuario.username ||
-        l.asignado_a === usuario.username
-      );
+      leads = leads.filter(l => l.ejecutivo_asignado === usuario.username);
     }
 
     const board = {};

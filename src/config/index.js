@@ -1,12 +1,9 @@
 require('dotenv').config();
-const path = require('path');
 
 module.exports = {
   PORT: process.env.PORT || 3000,
   SESSION_SECRET: process.env.SESSION_SECRET || 'cruzeiro-dev-secret',
-  DATA_DIR: process.env.DATA_DIR
-    ? path.join(process.env.DATA_DIR, 'cruzeiro')
-    : path.join(process.cwd(), 'data', 'cruzeiro'),
+  DATA_DIR: process.env.DATA_DIR || '/data/cruzeiro',
   META_VERIFY_TOKEN: process.env.META_VERIFY_TOKEN || '',
   META_ACCESS_TOKEN: process.env.META_ACCESS_TOKEN || '',
   META_PHONE_NUMBER_ID: process.env.META_PHONE_NUMBER_ID || '',

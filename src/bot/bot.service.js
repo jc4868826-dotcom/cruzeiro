@@ -474,7 +474,17 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   const conversacion = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
   try {
     const todosLeads = await db.getAll('leads');
-    const leadExistente = todosLeads.find(l => l.phone === phone || l.telefono === phone);
+    let leadExistente = null;
+
+    if (estadoActual.rut) {
+      leadExistente = todosLeads.find(l => l.rut === estadoActual.rut) || null;
+    }
+    if (!leadExistente) {
+      const porTelefono = todosLeads.find(l => l.phone === phone || l.telefono === phone);
+      if (porTelefono && !porTelefono.rut) {
+        leadExistente = porTelefono;
+      }
+    }
     const leadId = conversacion?.lead_id || leadExistente?.id;
     if (leadId) {
       if (Object.keys(leadUpdate).length > 0) {

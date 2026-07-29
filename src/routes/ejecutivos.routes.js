@@ -133,7 +133,7 @@ router.get('/conversaciones', requireAuth, async (req, res, next) => {
     // Ejecutivo role: only show their own assigned conversations
     const usuario = req.session.usuario
     if (usuario.rol === 'ejecutivo' && usuario.ejecutivo_id) {
-      resultado = resultado.filter(item => item.lead?.asignado_a === usuario.ejecutivo_id)
+      resultado = resultado.filter(item => item.lead?.ejecutivo_asignado === usuario.ejecutivo_id)
     }
 
     return res.json({ total: resultado.length, data: resultado })

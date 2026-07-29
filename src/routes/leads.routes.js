@@ -9,15 +9,15 @@ const router = express.Router();
 // ─── GET /api/leads ───────────────────────────────────────────────────────────
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const { estado, segmento, origen, busqueda, asignado_a, fecha_desde, fecha_hasta, page = 1, limit = 50 } = req.query;
+    const { estado, segmento, origen, busqueda, ejecutivo_asignado, fecha_desde, fecha_hasta, page = 1, limit = 50 } = req.query;
     let leads = await db.getAll('leads');
 
     // Ejecutivo role: enforce own-data filter regardless of query params
     const usuario = req.session.usuario;
     if (usuario.rol === 'ejecutivo' && usuario.ejecutivo_id) {
-      leads = leads.filter(l => l.asignado_a === usuario.ejecutivo_id);
+      leads = leads.filter(l => l.ejecutivo_asignado === usuario.ejecutivo_id);
     } else {
-      if (asignado_a) leads = leads.filter(l => l.asignado_a === asignado_a);
+      if (ejecutivo_asignado) leads = leads.filter(l => l.ejecutivo_asignado === ejecutivo_asignado);
     }
 
     if (estado) leads = leads.filter(l => l.estado === estado);
@@ -101,7 +101,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     if (!lead) return res.status(404).json({ error: 'No encontrado', message: 'Lead no existe.' });
 
     // Allowed fields to update
-    const allowed = ['nombre', 'telefono', 'email', 'empresa', 'estado', 'segmento', 'origen', 'asignado_a',
+    const allowed = ['nombre', 'telefono', 'email', 'empresa', 'estado', 'segmento', 'origen', 'ejecutivo_asignado',
       'rut', 'direccion', 'giro', 'canal_origen', 'notas_libres', 'fecha_ultima_compra',
       'resumen_conversacion', 'intencion_compra', 'derivado_a', 'fecha_derivacion'];
     const patch = {};

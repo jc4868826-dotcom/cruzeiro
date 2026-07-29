@@ -97,7 +97,7 @@ async function procesarContactoMayorista({
       bot_activo: false,
       estado: 'Nuevo',
       canal_clasificacion: clasificacion || 'mayorista',
-      asignado_a: ejecutivoId || null,
+      ejecutivo_asignado: ejecutivoId || null,
       notas: [],
     })
     logger.info(`alerta.service: nuevo lead mayorista creado id=${lead.id}`)
@@ -112,7 +112,7 @@ async function procesarContactoMayorista({
     lead = await db.update('leads', lead.id, {
       notas,
       canal_clasificacion: clasificacion || lead.canal_clasificacion,
-      asignado_a: ejecutivoId || lead.asignado_a,
+      ejecutivo_asignado: ejecutivoId || lead.ejecutivo_asignado,
     })
     logger.info(`alerta.service: lead existente actualizado id=${lead.id}`)
   }

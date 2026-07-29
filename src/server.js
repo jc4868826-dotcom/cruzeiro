@@ -5,6 +5,7 @@ const { PORT, DATA_DIR } = require('./config');
 const logger = require('./utils/logger');
 
 // ─── Ensure DATA_DIR exists before anything else ──────────────────────────────
+if (!fs.existsSync('/data/cruzeiro')) fs.mkdirSync('/data/cruzeiro', { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 logger.info(`DATA_DIR: ${DATA_DIR}`);
 
