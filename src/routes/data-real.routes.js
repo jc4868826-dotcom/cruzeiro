@@ -105,7 +105,7 @@ router.get('/ventas/resumen', requireAuth, (req, res) => {
     const mes   = String(r.Mes  || 'Sin mes');
     const fam   = String(r.Padre_familia || 'Sin familia');
     const vend  = String(r.Vendedor      || 'Sin vendedor');
-    const canal = String(r.Canal         || 'Sin canal');
+    const canal = String(r.Tipo_Negocio  || 'Sin canal');
     const doc   = r.NroDocumento;
 
     if (rut)  ruts.add(rut);
@@ -141,7 +141,7 @@ router.get('/ventas/resumen', requireAuth, (req, res) => {
     Object.entries(vendMap).map(([k, v]) => [k, { PxQ: v.PxQ, documentos: v.documentos.size }])
   );
 
-  return res.json({
+  const resumen = {
     total_clientes:   ruts.size,
     total_PxQ,
     total_documentos: docIds.size,
@@ -149,7 +149,9 @@ router.get('/ventas/resumen', requireAuth, (req, res) => {
     por_canal,
     por_familia,
     por_vendedor,
-  });
+  };
+  console.log('[ventas] resumen:', JSON.stringify(resumen).slice(0, 200));
+  return res.json(resumen);
 });
 
 // ─── GET /api/pedidos ─────────────────────────────────────────────────────────

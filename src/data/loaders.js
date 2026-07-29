@@ -163,7 +163,8 @@ function loadInputs(excelDir) {
 function loadVentasRaw(excelDir) {
   try {
     const wb = xlsx.readFile(path.join(excelDir, VENTAS_FILE));
-    return xlsx.utils.sheet_to_json(wb.Sheets['Hoja1'], { defval: null });
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets['Hoja1'], { defval: null });
+    return rows.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k.trim(), v])));
   } catch {
     return [];
   }
