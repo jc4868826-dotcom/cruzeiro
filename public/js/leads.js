@@ -308,12 +308,10 @@ async function verLead(id) {
               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0d5c8c] focus:ring-1 focus:ring-[#0d5c8c]/20">
           </div>
           <div>
-            <label class="text-xs font-medium text-slate-500 block mb-1">Ejecutivo asignado</label>
-            <select onchange="guardarCampoLead('${lead.id}', 'ejecutivo_asignado', this.value || null)"
-              class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]">
-              <option value="" ${!lead.ejecutivo_asignado ? 'selected' : ''}>— Sin asignar —</option>
-              ${ejecutivos.map(e => `<option value="${e.id}" ${lead.ejecutivo_asignado === e.id ? 'selected' : ''}>${escHtml(e.nombre)}</option>`).join('')}
-            </select>
+            <label>Ejecutivo asignado</label>
+            <div style="padding: 8px 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 14px; color: #111827;">
+              ${lead.ejecutivo_nombre || lead.ejecutivo_asignado || '— Sin asignar —'}
+            </div>
           </div>
           <div>
             <label class="text-xs font-medium text-slate-500 block mb-1">Última compra</label>
