@@ -2,6 +2,7 @@
 
 const express = require('express');
 const datos = require('../bot/datos');
+const dataStore = require('../data/dataStore');
 const { requireAuth } = require('../middlewares/auth.middleware');
 
 const router = express.Router();
@@ -85,10 +86,70 @@ router.get('/clientes/:rut', requireAuth, (req, res) => {
 
 // ─── GET /api/ventas/resumen ──────────────────────────────────────────────────
 router.get('/ventas/resumen', requireAuth, (req, res) => {
-  const clientes = datos.cargarClientes();
-  const canales = {};
-  clientes.forEach(c => { canales[c.canal] = (canales[c.canal] || 0) + 1; });
-  return res.json({ total_clientes: clientes.length, por_canal: canales });
+  const rows = dataStore.getVentasRaw();
+  if (!rows.length) {
+    return res.json({ total_clientes: 0, total_PxQ: 0, total_documentos: 0, por_mes: {}, por_canal: {}, por_familia: [], por_vendedor: {} });
+  }
+
+  const ruts   = new Set();
+  const docIds = new Set();
+  let total_PxQ = 0;
+  const mesMap  = {};
+  const canalMap = {};
+  const famMap  = {};
+  const vendMap = {};
+
+  for (const r of rows) {
+    const rut   = String(r.Rut || '').replace(/[^0-9]/g, '');
+    const pxq   = Number(r.PxQ) || 0;
+    const mes   = String(r.Mes  || 'Sin mes');
+    const fam   = String(r.Padre_familia || 'Sin familia');
+    const vend  = String(r.Vendedor      || 'Sin vendedor');
+    const canal = String(r.Canal         || 'Sin canal');
+    const doc   = r.NroDocumento;
+
+    if (rut)  ruts.add(rut);
+    if (doc)  docIds.add(doc);
+    total_PxQ += pxq;
+
+    if (!mesMap[mes])   mesMap[mes]   = { PxQ: 0, documentos: new Set() };
+    mesMap[mes].PxQ += pxq;
+    if (doc) mesMap[mes].documentos.add(doc);
+
+    if (!canalMap[canal]) canalMap[canal] = { PxQ: 0, clientes: new Set() };
+    canalMap[canal].PxQ += pxq;
+    if (rut) canalMap[canal].clientes.add(rut);
+
+    famMap[fam]  = (famMap[fam]  || 0) + pxq;
+
+    if (!vendMap[vend]) vendMap[vend] = { PxQ: 0, documentos: new Set() };
+    vendMap[vend].PxQ += pxq;
+    if (doc) vendMap[vend].documentos.add(doc);
+  }
+
+  const por_mes = Object.fromEntries(
+    Object.entries(mesMap).map(([k, v]) => [k, { PxQ: v.PxQ, documentos: v.documentos.size }])
+  );
+  const por_canal = Object.fromEntries(
+    Object.entries(canalMap).map(([k, v]) => [k, { PxQ: v.PxQ, clientes: v.clientes.size }])
+  );
+  const por_familia = Object.entries(famMap)
+    .map(([familia, PxQ]) => ({ familia, PxQ }))
+    .sort((a, b) => b.PxQ - a.PxQ)
+    .slice(0, 20);
+  const por_vendedor = Object.fromEntries(
+    Object.entries(vendMap).map(([k, v]) => [k, { PxQ: v.PxQ, documentos: v.documentos.size }])
+  );
+
+  return res.json({
+    total_clientes:   ruts.size,
+    total_PxQ,
+    total_documentos: docIds.size,
+    por_mes,
+    por_canal,
+    por_familia,
+    por_vendedor,
+  });
 });
 
 // ─── GET /api/pedidos ─────────────────────────────────────────────────────────

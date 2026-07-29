@@ -160,4 +160,13 @@ function loadInputs(excelDir) {
   ];
 }
 
-module.exports = { loadMaestra, loadWeb, buildCatalogo, excelDateToISO, loadVentas, loadPedidos, loadInputs };
+function loadVentasRaw(excelDir) {
+  try {
+    const wb = xlsx.readFile(path.join(excelDir, VENTAS_FILE));
+    return xlsx.utils.sheet_to_json(wb.Sheets['Hoja1'], { defval: null });
+  } catch {
+    return [];
+  }
+}
+
+module.exports = { loadMaestra, loadWeb, buildCatalogo, excelDateToISO, loadVentas, loadVentasRaw, loadPedidos, loadInputs };
