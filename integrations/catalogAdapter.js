@@ -1,6 +1,7 @@
 'use strict';
 
 const datos = require('../src/bot/datos');
+const dataStore = require('../src/data/dataStore');
 
 const SINONIMOS = {
   'piso goma':        ['Pisos de goma', 'Piso plancha', 'Gradas'],
@@ -35,6 +36,11 @@ const SINONIMOS = {
   'esponja':          ['Esponjas', 'Esponja'],
   'corredera':        ['Correderas'],
   'adhesivo':         ['Adhesivos'],
+  'pegamento':        ['Adhesivos'],
+  'cola':             ['Adhesivos'],
+  'pega':             ['Adhesivos'],
+  'agorex':           ['Adhesivos'],
+  'gobusa':           ['Adhesivos'],
   'seguridad vial':   ['Conos', 'Tachas', 'Lomos de toro y rampas', 'Estacionamiento', 'Cintas demarcatorias', 'Hitos'],
   'alfombra':         ['Alfombras'],
   'felpudo':          ['Alfombras'],
@@ -67,42 +73,65 @@ function detectarSubcategorias(qNorm) {
   return subcats;
 }
 
-function ordenar(lista) {
-  return lista.sort((a, b) => {
-    if (a.tiene_stock !== b.tiene_stock) return a.tiene_stock ? -1 : 1;
-    return (a.precio || 0) - (b.precio || 0);
-  });
-}
-
 function buscar(query) {
   const catalogo = datos.getTodosCatalogo();
-  const q = query.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+  const q = normalizar(query);
   const tokens = q.split(/\s+/).filter(t => t.length > 2);
   if (!tokens.length) return [];
 
-  const scored = catalogo
-    .map(p => {
-      const texto = [p.nombre_web, p.descripcion, p.subcategoria, p.categoria, p.familia, p.padre_familia, p.atributos]
-        .filter(Boolean).join(' ').toLowerCase()
-        .normalize('NFD').replace(/[̀-ͯ]/g,'');
-      const score = tokens.reduce((s, t) => s + (texto.includes(t) ? 1 : 0), 0);
-      return { p, score };
-    })
-    .filter(x => x.score > 0)
-    .sort((a, b) => b.score - a.score || (b.p.stock||0) - (a.p.stock||0));
+  const subcatsFromSinonimos = detectarSubcategorias(q);
+
+  const scored = catalogo.map(p => {
+    const nombre = normalizar(p.nombre_web);
+    const subcat = normalizar(p.subcategoria);
+    const cat    = normalizar(p.categoria);
+    const desc   = normalizar(p.descripcion);
+
+    let score = 0;
+    for (const t of tokens) {
+      if (nombre.includes(t)) score += 4;
+      if (subcat.includes(t)) score += 3;
+      if (cat.includes(t))    score += 2;
+      if (desc.includes(t))   score += 1;
+    }
+
+    if (subcatsFromSinonimos.size > 0 && subcatsFromSinonimos.has(p.subcategoria)) {
+      score += 10;
+    }
+
+    return { p, score };
+  })
+  .filter(x => x.score > 0)
+  .sort((a, b) => b.score - a.score || (b.p.tiene_stock ? 1 : 0) - (a.p.tiene_stock ? 1 : 0));
+
+  if (!scored.length && subcatsFromSinonimos.size > 0) {
+    return buscarPorSubcategorias([...subcatsFromSinonimos]);
+  }
 
   return scored.slice(0, 8).map(x => x.p);
 }
 
 function buscarConocimiento(query) {
   if (!query || !query.trim()) return [];
-  const productosMatch = buscar(query);
-  return productosMatch
-    .map(p => p.conocimiento_tecnico)
-    .filter(Boolean)
-    .filter((v, i, a) => a.indexOf(v) === i)
-    .slice(0, 2)
-    .map(conocimiento => ({ familia: '', conocimiento }));
+  const usos = dataStore.getUsos();
+  if (!usos.length) return [];
+
+  const q = normalizar(query);
+  const tokens = q.split(/\s+/).filter(t => t.length > 2);
+  if (!tokens.length) return [];
+
+  const scored = usos.map(u => {
+    const texto = normalizar(u.categoria + ' ' + u.conocimiento);
+    const score = tokens.reduce((s, t) => s + (texto.includes(t) ? 1 : 0), 0);
+    return { u, score };
+  })
+  .filter(x => x.score > 0)
+  .sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 2).map(x => ({
+    familia: x.u.categoria,
+    conocimiento: x.u.conocimiento,
+  }));
 }
 
 function buscarPorSubcategorias(subcategorias) {
@@ -135,8 +164,7 @@ function obtenerResumenCatalogo() {
 }
 
 function obtenerTodoElConocimiento() {
-  const catalogo = datos.getTodosCatalogo();
-  return [...new Set(catalogo.map(p => p.conocimiento_tecnico).filter(Boolean))].slice(0, 10);
+  return dataStore.getUsos().slice(0, 10).map(u => u.conocimiento);
 }
 
 function getTodos() {

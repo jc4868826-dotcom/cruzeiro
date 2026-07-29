@@ -170,4 +170,24 @@ function loadVentasRaw(excelDir) {
   }
 }
 
-module.exports = { loadMaestra, loadWeb, buildCatalogo, excelDateToISO, loadVentas, loadVentasRaw, loadPedidos, loadInputs };
+function loadUsos(excelDir) {
+  try {
+    const wb = xlsx.readFile(path.join(excelDir, 'Usos_Especificaciones.xlsx'));
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets['Usos'], { header: 1, defval: null });
+    const result = [];
+    let currentCat = '';
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row[0]) currentCat = String(row[0]).trim();
+      const texts = row.slice(1).filter(v => v != null).map(v => String(v).trim()).filter(Boolean);
+      if (texts.length) {
+        result.push({ categoria: currentCat, conocimiento: texts.join(' | ') });
+      }
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+module.exports = { loadMaestra, loadWeb, buildCatalogo, excelDateToISO, loadVentas, loadVentasRaw, loadPedidos, loadInputs, loadUsos };

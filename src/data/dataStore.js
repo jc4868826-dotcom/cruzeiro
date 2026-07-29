@@ -5,7 +5,7 @@ const loaders = require('./loaders');
 const DATA_DIR = process.env.EXCEL_DIR || path.join(__dirname, '../../data/cruzeiro');
 const RELOAD_INTERVAL_MS = 10 * 60 * 1000;
 
-let store = { catalogo: [], ventasMap: new Map(), ventasRaw: [], pedidos: [], ejecutivos: [], lastLoaded: null };
+let store = { catalogo: [], ventasMap: new Map(), ventasRaw: [], usos: [], pedidos: [], ejecutivos: [], lastLoaded: null };
 
 function _loadSync() {
   const maestraMap = loaders.loadMaestra(DATA_DIR);
@@ -13,14 +13,15 @@ function _loadSync() {
   const catalogo   = loaders.buildCatalogo(maestraMap, webArray);
   const ventasMap  = loaders.loadVentas(DATA_DIR);
   const ventasRaw  = loaders.loadVentasRaw(DATA_DIR);
+  const usos       = loaders.loadUsos(DATA_DIR);
   const pedidos    = loaders.loadPedidos(DATA_DIR);
   const ejecutivos = loaders.loadInputs(DATA_DIR);
-  return { catalogo, ventasMap, ventasRaw, pedidos, ejecutivos, lastLoaded: new Date() };
+  return { catalogo, ventasMap, ventasRaw, usos, pedidos, ejecutivos, lastLoaded: new Date() };
 }
 
 function init() {
   store = _loadSync();
-  console.log(`[dataStore] Init: ${store.catalogo.length} productos | ${store.ventasMap.size} clientes | ${store.ventasRaw.length} filas ventas | ${store.pedidos.length} pedidos | ${store.ejecutivos.length} ejecutivos`);
+  console.log(`[dataStore] Init: ${store.catalogo.length} productos | ${store.ventasMap.size} clientes | ${store.ventasRaw.length} filas ventas | ${store.usos.length} filas usos | ${store.pedidos.length} pedidos | ${store.ejecutivos.length} ejecutivos`);
 }
 
 function reload() {
@@ -39,7 +40,8 @@ function startAutoReload() {
 function getCatalogo()   { return store.catalogo; }
 function getVentasMap()  { return store.ventasMap; }
 function getVentasRaw()  { return store.ventasRaw; }
+function getUsos()       { return store.usos; }
 function getPedidos()    { return store.pedidos; }
 function getEjecutivos() { return store.ejecutivos; }
 
-module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getPedidos, getEjecutivos };
+module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos };
