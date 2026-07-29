@@ -27,23 +27,19 @@ const router = express.Router()
 // ─── GET /api/ejecutivos ──────────────────────────────────────────────────────
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const datos = require('../bot/datos');
-    const ejecutivos = datos.cargarTodosEjecutivos();
-    const dbUsuarios = await db.getAll('usuarios');
-    const merged = ejecutivos.map(e => {
-      const dbUser = dbUsuarios.find(u => u.username === e.username);
-      return {
-        id: e.username,
-        nombre: e.nombre,
-        canal: e.rol,
-        fono: e.fono,
-        email: e.email,
-        activo: dbUser ? dbUser.activo !== false : true,
-      };
-    });
-    res.json(merged);
+    const usuarios = await db.getAll('usuarios')
+    const ejecutivos = usuarios
+      .filter(u => u.rol !== 'admin' && u.activo !== false)
+      .map(u => ({
+        id: u.username,
+        nombre: u.nombre,
+        username: u.username,
+        rol: u.rol,
+        activo: u.activo !== false,
+      }))
+    res.json(ejecutivos)
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message })
   }
 })
 
