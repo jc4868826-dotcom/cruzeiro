@@ -37,6 +37,7 @@ router.get('/', requireAuth, async (req, res) => {
         rol: u.rol,
         activo: u.activo !== false,
       }))
+    res.set('Cache-Control', 'no-store')
     res.json(ejecutivos)
   } catch (e) {
     res.status(500).json({ error: e.message })
