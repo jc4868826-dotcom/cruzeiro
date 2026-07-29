@@ -309,10 +309,10 @@ async function verLead(id) {
           </div>
           <div>
             <label class="text-xs font-medium text-slate-500 block mb-1">Ejecutivo asignado</label>
-            <select onchange="guardarCampoLead('${lead.id}', 'asignado_a', this.value || null)"
+            <select onchange="guardarCampoLead('${lead.id}', 'ejecutivo_asignado', this.value || null)"
               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]">
-              <option value="" ${!lead.asignado_a ? 'selected' : ''}>— Sin asignar —</option>
-              ${ejecutivos.map(e => `<option value="${e.id}" ${lead.asignado_a === e.id ? 'selected' : ''}>${escHtml(e.nombre)}</option>`).join('')}
+              <option value="" ${!lead.ejecutivo_asignado ? 'selected' : ''}>— Sin asignar —</option>
+              ${ejecutivos.map(e => `<option value="${e.id}" ${lead.ejecutivo_asignado === e.id ? 'selected' : ''}>${escHtml(e.nombre)}</option>`).join('')}
             </select>
           </div>
           <div>
