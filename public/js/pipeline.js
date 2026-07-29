@@ -94,12 +94,12 @@ async function recargarPipeline() {
   const segmento = document.getElementById('pipeline-segmento')?.value || '';
   const usuario = window.App?.usuario;
   // Ejecutivo role: backend enforces own-data filter; frontend locks the select
-  const asignado_a = usuario?.rol === 'ejecutivo'
+  const ejecutivo_asignado = usuario?.rol === 'ejecutivo'
     ? (usuario.ejecutivo_id || '')
     : (document.getElementById('pipeline-ejecutivo')?.value || '');
   const params = new URLSearchParams();
   if (segmento) params.set('segmento', segmento);
-  if (asignado_a) params.set('asignado_a', asignado_a);
+  if (ejecutivo_asignado) params.set('ejecutivo_asignado', ejecutivo_asignado);
 
   let board;
   try {
