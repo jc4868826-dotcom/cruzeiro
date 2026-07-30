@@ -49,8 +49,18 @@ async function procesarMensajeWhatsApp(phone, texto, value) {
     const contactos = value?.contacts || [];
     const nombrePerfil = contactos[0]?.profile?.name || null;
 
+    // ── Buscar conversación activa para este teléfono ─────────────────────
+    // Si el mensaje es /reset, no buscamos conversación — siempre arranca limpio
+    const esReset = texto.trim().toLowerCase() === '/reset';
+
     const conversaciones = await db.getAll('conversaciones');
-    const conversacionExistente = conversaciones.find(c => c.phone === phone) || null;
+
+    // La conversación activa es la más reciente del phone que esté abierta
+    const conversacionExistente = esReset ? null : (
+      conversaciones
+        .filter(c => c.phone === phone && c.bot_activo !== false)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null
+    );
 
     const resultado = await botService.procesarMensaje(phone, texto, conversacionExistente, {
       canal_tipo: 'web_whatsapp',
@@ -68,9 +78,6 @@ async function procesarMensajeWhatsApp(phone, texto, value) {
     if (resultado?.respuesta) {
       await whatsappAdapter.enviarMensaje(phone, resultado.respuesta);
       console.log('[webhook] Respuesta enviada a:', phone);
-    }
-    if (resultado?.leadUpdate && Object.keys(resultado.leadUpdate).length > 0) {
-      console.log('[webhook] Lead update:', JSON.stringify(resultado.leadUpdate).slice(0, 100));
     }
   } catch (e) {
     console.error('[webhook] ERROR procesando mensaje de', phone, ':', e.message, e.stack);

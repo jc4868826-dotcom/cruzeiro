@@ -178,7 +178,7 @@ function formatPrice(n) {
 function buildSystemPrompt(productosContexto, contextoCliente = null, conocimientoContexto = null, historialConv = []) {
   const catalogoTexto = Array.isArray(productosContexto) && productosContexto.length > 0
     ? productosContexto.map(p =>
-        `• ${p.nombre_web} | $${Number(p.precio||0).toLocaleString('es-CL')} | Stock: ${p.stock ?? 'disponible'} ${p.unidad||''} | SKU: ${p.sku}`
+        `• ${p.nombre_web} | PRECIO: $${Number(p.precio||0).toLocaleString('es-CL')} | Stock: ${p.stock ?? 'disponible'} ${p.unidad||''} | SKU: ${p.sku}`
       ).join('\n')
     : 'No encontré productos para esta consulta. Pide más detalles al cliente para afinar la búsqueda.';
 
@@ -243,7 +243,7 @@ PASO 5a — PRESENTAR (primera vez):
 Menciona 2-3 opciones con nombre y precio solamente. NO incluyas SKU ni stock en este momento. El objetivo es que el cliente elija o muestre interés. Ejemplo: "Para escaleras exteriores te van perfecto las gradas de goma. Tenemos la Grada Estriada Negro 5mm a $7.989 y la Grada Estoperol a $8.500. ¿Cuál de estas se acerca más a lo que buscas?"
 
 PASO 5b — CONFIRMAR (el cliente elige o pregunta por una):
-Recién aquí entrega el SKU y el stock del producto elegido. Ejemplo: "Perfecto, la Grada Estriada Negro 5mm x 300mm x 1200mm, SKU I228158559C, tiene stock disponible. ¿Cuántas unidades necesitas?"
+Recién aquí entrega el SKU, el precio EXACTO del catálogo y el stock del producto elegido. El precio siempre está disponible en el CATÁLOGO — jamás digas que no lo tienes. Ejemplo: "Perfecto, la Grada Estriada Negro 5mm x 300mm x 1200mm, SKU I228158559C, tiene stock disponible. ¿Cuántas unidades necesitas?"
 
 PASO 6 — CERRAR:
 Cuando el cliente confirma cantidad, di: "Listo. Puedes agregarla directo al carrito en https://cruzeirogomas.cl/carrito/ buscándola por el SKU [SKU EXACTO]. ¿Te ayudo con algo más o prefieres que te contacte un ejecutivo?"
@@ -269,6 +269,7 @@ REGLAS ABSOLUTAS
 - NUNCA saludes con "¡Hola!" si ya hay mensajes previos en el historial
 - Si el cliente pregunta por adhesivos u otros complementos, búscalos primero en el CATÁLOGO antes de decir que no los tienes
 - Cuando el cliente pregunte por un pedido específico, usa TODOS los datos disponibles: estado, fecha de entrega, orden de compra, tipo de despacho y dirección. No digas "consulta con tu ejecutivo" si tienes esa información — úsala.
+- NUNCA digas que no tienes el precio de un producto — el precio está siempre en el CATÁLOGO DE PRODUCTOS. Si el cliente eligió un producto, lee su precio en el catálogo y confírmalo.
 - Responde siempre en español chileno natural
 
 ═══════════════════════════════════
@@ -349,14 +350,29 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   const { testMode = false, canal_tipo = 'web_whatsapp', nombrePerfil = null } = opciones;
   logger.info(`Bot [${phone}]: "${texto.slice(0, 60)}"`);
 
+  if (texto.trim().toLowerCase() === '/reset') {
+    resetEstado(phone);
+    // Cerrar todas las conversaciones activas del phone (no borrar, solo marcar cerradas)
+    const todasConvs = await db.getAll('conversaciones');
+    const convsDelPhone = todasConvs.filter(c => c.phone === phone && c.bot_activo !== false);
+    for (const conv of convsDelPhone) {
+      await db.update('conversaciones', conv.id, { bot_activo: false, cerrada_en: new Date().toISOString() });
+    }
+    return {
+      respuesta: '✅ Sesión reiniciada. Escribe "hola" para comenzar de nuevo.',
+      derivar: false,
+      conversacion: null,
+      leadUpdate: {},
+      estado: getEstado(phone),
+    };
+  }
+
   // ── Nombre de perfil WhatsApp (Meta) ──────────────────────────────────────
   // Se usa solo si el lead no tiene nombre aún. No sobreescribe nombre de empresa.
   const leadUpdate = {};
-  if (nombrePerfil) {
+  if (nombrePerfil && !getEstado(phone).clienteNombre) {
     leadUpdate.nombre = nombrePerfil;
-    if (!getEstado(phone).clienteNombre) {
-      setEstado(phone, { clienteNombre: nombrePerfil });
-    }
+    setEstado(phone, { clienteNombre: nombrePerfil });
   }
 
   // ── PASO 1: Leer estado actual ────────────────────────────────────────────
@@ -494,30 +510,44 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
   const conversacion = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
+  // ── PASO 10: Upsert de lead con nuevo modelo de identidad ────────────────
+  // Clave: RUT si existe (lead empresa), phone sin RUT si no (lead personal)
+  // Un mismo phone puede tener N leads con distintos RUT + 1 lead personal
   try {
     const todosLeads = await db.getAll('leads');
     let leadExistente = null;
 
     if (estadoActual.rut) {
+      // Buscar lead por RUT — independiente del phone
       leadExistente = todosLeads.find(l => l.rut === estadoActual.rut) || null;
+    } else {
+      // Buscar lead personal: mismo phone y sin RUT asignado
+      leadExistente = todosLeads.find(l =>
+        (l.phone === phone || l.telefono === phone) && !l.rut
+      ) || null;
     }
-    if (!leadExistente) {
-      const porTelefono = todosLeads.find(l => l.phone === phone || l.telefono === phone);
-      if (porTelefono && !porTelefono.rut) {
-        leadExistente = porTelefono;
-      }
-    }
-    const leadId = conversacion?.lead_id || leadExistente?.id;
+
+    const leadId = leadExistente?.id || conversacion?.lead_id;
+
     if (leadId) {
-      if (Object.keys(leadUpdate).length > 0) {
-        await db.update('leads', leadId, leadUpdate);
-        console.log('[bot] Lead actualizado:', leadId, JSON.stringify(leadUpdate).slice(0, 100));
+      // Siempre asegurar que el phone quede registrado en el lead
+      const patch = { ...leadUpdate };
+      if (!leadExistente?.phone) patch.phone = phone;
+      if (!leadExistente?.telefono) patch.telefono = phone;
+      if (Object.keys(patch).length > 0) {
+        await db.update('leads', leadId, patch);
+        console.log('[bot] Lead actualizado:', leadId, JSON.stringify(patch).slice(0, 100));
+      }
+      // Vincular conversación al lead si aún no está vinculada
+      if (conversacion?.id && !conversacion.lead_id) {
+        await db.update('conversaciones', conversacion.id, { lead_id: leadId });
       }
     } else {
+      // Crear lead nuevo
       const nuevoLead = await db.save('leads', {
         phone,
         telefono: phone,
-        nombre: leadUpdate.nombre || 'Cliente WhatsApp',
+        nombre: leadUpdate.nombre || nombrePerfil || 'Cliente WhatsApp',
         origen: 'whatsapp',
         estado: 'Nuevo',
         bot_activo: true,
