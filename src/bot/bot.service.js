@@ -161,16 +161,6 @@ function detectarIntencion(texto) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function estaEnHorario() {
-  const ahora = new Date();
-  const offsetSantiago = -4 * 60;
-  const santiagoMs = ahora.getTime() + ahora.getTimezoneOffset() * 60000 + offsetSantiago * 60000;
-  const santiago = new Date(santiagoMs);
-  const dia = santiago.getDay();
-  const hora = santiago.getHours();
-  return dia >= 1 && dia <= 5 && hora >= 9 && hora < 18;
-}
-
 function formatPrice(n) {
   return `$${Number(n).toLocaleString('es-CL')}`;
 }
@@ -502,11 +492,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── PASO 8: Llamar a OpenAI ───────────────────────────────────────────────
   let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx)
     || `Estoy aquí para ayudarte. ¿En qué puedo orientarte?`;
-
-  // ── PASO 9: Fuera de horario (solo primer mensaje) ────────────────────────
-  if (!testMode && !estaEnHorario() && historialConv.length === 0) {
-    respuesta = personalidad.fuera_de_horario;
-  }
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
   const conversacion = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
