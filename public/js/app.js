@@ -237,6 +237,26 @@ window.App.showLocalNotification = function (title, body, data = {}) {
   });
 };
 
+// ─── Auto-refresh 10s ────────────────────────────────────────────────────────
+let _autoRefreshInterval = null;
+
+function startAutoRefresh() {
+  if (_autoRefreshInterval) clearInterval(_autoRefreshInterval);
+  _autoRefreshInterval = setInterval(async () => {
+    const page = window.location.hash.replace('#', '') || 'dashboard';
+    if (page === 'dashboard') {
+      try { await refreshLeadsKPIs(); } catch (_) {}
+      try { await refreshUltimosLeads(); } catch (_) {}
+    }
+    if (page === 'leads') {
+      try { await cargarLeads(); } catch (_) {}
+    }
+  }, 10000);
+}
+
+window.addEventListener('load', () => setTimeout(startAutoRefresh, 3000));
+window.addEventListener('hashchange', () => startAutoRefresh());
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (async () => {
   const ok = await checkAuth();
