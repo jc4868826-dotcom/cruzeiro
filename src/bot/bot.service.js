@@ -173,14 +173,24 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
 
   const catalogoTexto = grupos.length > 0
     ? grupos.map(g => {
+        const anchoTexto = g.ancho ? `ancho ${g.ancho}mt` : '';
         const variantesTexto = g.variantes.map(v => {
           const precioFmt = `$${Number(v.precio).toLocaleString('es-CL')}`;
-          const stockTexto = v.stock !== null && v.stock > 0 ? `stock: ${Math.floor(v.stock)} ${v.unidad}` : 'consultar stock';
-          if (v.tipo === 'metro') return `  → Por metro lineal: ${precioFmt}/mt | ${stockTexto} | SKU: ${v.sku}`;
-          if (v.tipo === 'rollo') return `  → Rollo completo: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
+          const stockTexto = v.stock !== null && v.stock > 0
+            ? `stock: ${Math.floor(v.stock)} ${v.unidad}`
+            : 'consultar stock';
+          if (v.tipo === 'metro') {
+            const anchoInfo = g.ancho
+              ? ` (ancho ${g.ancho}mt — 1 metro lineal = ${g.ancho} m²)`
+              : '';
+            return `  → Por metro lineal${anchoInfo}: ${precioFmt}/mt | ${stockTexto} | SKU: ${v.sku}`;
+          }
+          if (v.tipo === 'rollo') {
+            return `  → Rollo completo${anchoTexto ? ' ' + anchoTexto : ''}: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
+          }
           return `  → Por unidad: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
         }).join('\n');
-        return `• ${g.nombre}\n${variantesTexto}`;
+        return `• ${g.nombre}${anchoTexto ? ' (' + anchoTexto + ')' : ''}\n${variantesTexto}`;
       }).join('\n\n')
     : 'No encontré productos para esta consulta. Pide más detalles al cliente para afinar la búsqueda.';
 
@@ -313,16 +323,24 @@ Los productos ya vienen agrupados con sus variantes. Cada grupo tiene:
   → Por metro lineal: $X/mt | stock: N mt | SKU: XXXXX
   → Rollo completo: $Y | stock: disponible | SKU: XXXXX-20
 
-REGLA — elige la variante correcta según la cantidad del cliente:
-- Si el cliente necesita una cantidad específica de metros o m² → usa la variante "Por metro lineal"
-- Si el cliente quiere un rollo completo o es volumen grande → usa la variante "Rollo completo"
-- Si solo hay una variante disponible → ofrécela explicando el formato
+REGLA — conversión automática m² a metros lineales:
+Cuando el cliente da una superficie en m² y el producto se vende por metro lineal,
+TÚ haces el cálculo — no el cliente.
+Fórmula: metros lineales necesarios = m² del cliente ÷ ancho del producto (en metros)
+El ancho está indicado en el catálogo junto a la variante metro.
 
-CÓMO PRESENTAR las variantes:
-"Para tus 10 m² tenemos el Piso Goma Estoperol Negro 3mm disponible:
-- Por metro a $7.904/mt → necesitas 10 metros = $79.040 total (SKU: I271PIST01NE)
-- O rollo completo de 20 metros a $129.150 si necesitas más adelante (SKU: I271PIST01NE-20)
-¿Cuál te conviene más?"
+Ejemplo con ancho 1mt:
+  Cliente necesita 10 m² → 10 m² ÷ 1mt ancho = 10 metros lineales
+  "Para tus 10 m² necesitas 10 metros lineales del Piso Estoperol Negro 3mm (ancho 1mt)
+   a $7.904/mt = $79.040 total (SKU: I271PIST01NE)"
+
+Ejemplo con ancho 1.6mt:
+  Cliente necesita 10 m² → 10 m² ÷ 1.6mt ancho = 6.25 metros lineales → redondea a 7mt
+  "Para tus 10 m² necesitas 7 metros lineales del Piso Estoperol Negro 3mm ancho 1,6mt
+   a $13.267/mt = $92.869 total (SKU: I271PIST16NE)"
+
+NUNCA le preguntes al cliente cuántos metros lineales necesita si ya te dijo los m².
+TÚ calculas y presentas el resultado listo.
 
 NUNCA mezcles precios de variantes distintas.
 NUNCA muestres precio 0 o precio 1 — si todas las variantes tienen precio inválido, di "te confirmo el precio con tu ejecutivo".

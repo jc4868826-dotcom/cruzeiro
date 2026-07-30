@@ -181,22 +181,29 @@ function agruparVariantes(productos) {
     // SKU base = todo antes del primer guion (ej: I271PIST01NE-20 → I271PIST01NE)
     const skuBase = p.sku.split('-')[0];
 
+    // Extraer ancho desde nombre_web (ej: "X 1 mt" o "X1,6 mt" o "X1,0MT")
+    const matchAncho = (p.nombre_web || '').match(/[Xx]\s*(\d+[,.]\d+|\d+)\s*m/i);
+    const ancho = matchAncho ? parseFloat(matchAncho[1].replace(',', '.')) : null;
+
     if (!grupos.has(skuBase)) {
       grupos.set(skuBase, {
         skuBase,
         nombre: p.nombre_web,
         subcategoria: p.subcategoria,
+        ancho,
         variantes: [],
       });
     }
 
     const grupo = grupos.get(skuBase);
 
+    // Actualizar ancho si el grupo aún no lo tiene
+    if (!grupo.ancho && ancho) grupo.ancho = ancho;
+
     // Determinar tipo de variante según nombre y precio
     const nombreLower = (p.nombre_web || '').toLowerCase();
     const esRollo = nombreLower.includes('rollo') || p.sku.includes('-20') || p.sku.includes('-25');
     const esPorMetro = !esRollo && (p.unidad === 'MT' || p.unidad === 'mt' || p.unidad === 'ML');
-    const esPorUnidad = !esRollo && !esPorMetro;
 
     // Solo agregar si tiene precio válido (> 1)
     if (!p.precio || p.precio <= 1) continue;
@@ -217,6 +224,41 @@ function agruparVariantes(productos) {
       const orden = { metro: 0, unidad: 1, rollo: 2 };
       return (orden[a.tipo] ?? 3) - (orden[b.tipo] ?? 3);
     });
+  }
+
+  // Enriquecer grupos: para cada grupo que tenga rollo pero no metro,
+  // buscar la variante metro por SKU base en el catálogo completo
+  const todoCatalogo = datos.getTodosCatalogo();
+
+  for (const grupo of grupos.values()) {
+    const tieneMetro = grupo.variantes.some(v => v.tipo === 'metro');
+    if (!tieneMetro) {
+      // Buscar en catálogo completo productos cuyo SKU base coincida
+      // y sean de tipo metro (unidad MT/mt/ML y sin guion en SKU)
+      const variantesMetro = todoCatalogo.filter(p => {
+        const base = p.sku.split('-')[0];
+        const esMetro = (p.unidad === 'MT' || p.unidad === 'mt' || p.unidad === 'ML');
+        const precioValido = p.precio && p.precio > 1;
+        const stockOk = p.stock === null || p.stock > 0;
+        return base === grupo.skuBase && esMetro && precioValido && stockOk && !p.sku.includes('-');
+      });
+
+      for (const p of variantesMetro) {
+        grupo.variantes.unshift({
+          sku: p.sku,
+          tipo: 'metro',
+          precio: p.precio,
+          stock: p.stock,
+          unidad: p.unidad || 'MT',
+          nombre_web: p.nombre_web,
+        });
+        // Actualizar ancho desde la variante metro si el grupo aún no lo tiene
+        if (!grupo.ancho) {
+          const matchAncho = (p.nombre_web || '').match(/[Xx]\s*(\d+[,.]\d+|\d+)\s*m/i);
+          if (matchAncho) grupo.ancho = parseFloat(matchAncho[1].replace(',', '.'));
+        }
+      }
+    }
   }
 
   return [...grupos.values()].filter(g => g.variantes.length > 0);
