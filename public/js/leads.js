@@ -5,66 +5,99 @@ let _currentLead = null;
 
 async function renderLeads(container) {
   container.innerHTML = `
-    <div class="flex gap-5" style="height:calc(100vh - 140px)">
+    <div class="flex rounded-xl overflow-hidden border border-slate-200" style="height:calc(100vh - 140px); background:#f0f2f5;">
 
-      <!-- Lista izquierda -->
-      <div class="w-72 shrink-0 flex flex-col gap-3">
+      <!-- Columna izquierda estilo WhatsApp Web -->
+      <div class="shrink-0 flex flex-col bg-white border-r border-slate-200" style="width:380px;">
 
-        <!-- Búsqueda rápida -->
-        <div class="bg-white border border-slate-200 rounded-xl p-3">
-          <input id="lead-search" type="text" placeholder="🔍 Buscar nombre o teléfono..."
-            class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0d5c8c] focus:ring-1 focus:ring-[#0d5c8c]/20"
-            oninput="filtrarLeads()">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100" style="background:#f0f2f5;">
+          <span class="text-base font-semibold text-slate-800">Leads</span>
+          <button onclick="mostrarFormNuevoLead()"
+            class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-200 transition text-slate-500"
+            title="Nuevo Lead">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          </button>
         </div>
 
-        <!-- Filtros compactos -->
-        <div class="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
-          <select id="lead-segmento" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
-            <option value="">Todos los segmentos</option>
-            <option value="ecommerce">🟢 Ecommerce</option>
-            <option value="mayorista">🔵 Mayorista</option>
-          </select>
-          <select id="lead-estado" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
+        <!-- Buscador -->
+        <div class="px-3 py-2 border-b border-slate-100" style="background:#f0f2f5;">
+          <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-1.5 border border-slate-200">
+            <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 105 11a6 6 0 0012 0z"/></svg>
+            <input id="lead-search" type="text" placeholder="Buscar o empezar un nuevo chat"
+              class="flex-1 text-sm bg-transparent outline-none text-slate-700 placeholder-slate-400"
+              oninput="filtrarLeads()">
+          </div>
+        </div>
+
+        <!-- Pills de segmento -->
+        <div class="flex gap-2 px-3 py-2 border-b border-slate-100 overflow-x-auto" style="background:#f0f2f5;">
+          <button onclick="setFiltroSegmento('')"
+            id="pill-todos"
+            class="pill-seg shrink-0 text-xs font-medium px-3 py-1 rounded-full border transition bg-[#0d5c8c] text-white border-[#0d5c8c]">
+            Todos
+          </button>
+          <button onclick="setFiltroSegmento('ecommerce')"
+            id="pill-ecommerce"
+            class="pill-seg shrink-0 text-xs font-medium px-3 py-1 rounded-full border transition bg-white text-slate-600 border-slate-300 hover:border-[#0d5c8c]">
+            Ecommerce
+          </button>
+          <button onclick="setFiltroSegmento('mayorista')"
+            id="pill-mayorista"
+            class="pill-seg shrink-0 text-xs font-medium px-3 py-1 rounded-full border transition bg-white text-slate-600 border-slate-300 hover:border-[#0d5c8c]">
+            Mayorista
+          </button>
+          <select id="lead-estado" class="shrink-0 text-xs border border-slate-300 rounded-full px-3 py-1 bg-white text-slate-600 focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
             <option value="">Todos los estados</option>
             <option>Nuevo</option><option>Contactado</option><option>Cotizado</option>
             <option>Pedido Enviado</option><option>Cerrado</option><option>Abandonado</option>
           </select>
-          <select id="lead-origen" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
-            <option value="">Todos los orígenes</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="web">Web</option>
-            <option value="chat_test">Chat de Prueba</option>
-          </select>
-          <div class="flex gap-2">
-            <input id="lead-fecha-desde" type="date" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
-            <input id="lead-fecha-hasta" type="date" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
-          </div>
-          <button onclick="limpiarFiltrosLeads()" class="w-full text-xs text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition">Limpiar filtros</button>
+          <button onclick="limpiarFiltrosLeads()" class="shrink-0 text-xs text-slate-400 hover:text-slate-600 px-2 transition">✕</button>
         </div>
 
-        <!-- Lista -->
-        <div id="leads-list" class="flex-1 overflow-y-auto space-y-2 pr-1">
+        <!-- Lista de leads -->
+        <div id="leads-list" class="flex-1 overflow-y-auto">
           <div class="text-sm text-slate-400 text-center py-8">Cargando leads...</div>
         </div>
-
-        <button onclick="mostrarFormNuevoLead()"
-          class="w-full bg-[#0d5c8c] hover:bg-[#0a4a73] text-white text-sm font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Nuevo Lead
-        </button>
       </div>
 
       <!-- Panel derecho -->
-      <div id="lead-detail" class="flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
-        <div class="flex-1 flex flex-col items-center justify-center gap-4 text-slate-300">
-          <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
-            <svg class="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      <div id="lead-detail" class="flex-1 flex flex-col overflow-hidden" style="background:#f0f2f5;">
+        <div class="flex-1 flex flex-col items-center justify-center gap-4">
+          <div class="w-20 h-20 rounded-full flex items-center justify-center" style="background:#dfe5e7;">
+            <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
           </div>
-          <p class="text-sm text-slate-400">Selecciona un lead para ver el detalle</p>
+          <div class="text-center">
+            <p class="text-lg font-light text-slate-500">Selecciona un lead</p>
+            <p class="text-sm text-slate-400 mt-1">para ver la conversación</p>
+          </div>
         </div>
       </div>
     </div>
+
+    <!-- Inputs ocultos para filtros adicionales -->
+    <div class="hidden">
+      <input id="lead-segmento" type="text">
+      <input id="lead-origen" type="text">
+      <input id="lead-fecha-desde" type="date">
+      <input id="lead-fecha-hasta" type="date">
+    </div>
   `;
+
+  window.setFiltroSegmento = function(seg) {
+    const el = document.getElementById('lead-segmento');
+    if (el) el.value = seg;
+    document.querySelectorAll('.pill-seg').forEach(p => {
+      p.classList.remove('bg-[#0d5c8c]', 'text-white', 'border-[#0d5c8c]');
+      p.classList.add('bg-white', 'text-slate-600', 'border-slate-300');
+    });
+    const active = document.getElementById(seg ? `pill-${seg}` : 'pill-todos');
+    if (active) {
+      active.classList.remove('bg-white', 'text-slate-600', 'border-slate-300');
+      active.classList.add('bg-[#0d5c8c]', 'text-white', 'border-[#0d5c8c]');
+    }
+    cargarLeads();
+  };
 
   await cargarLeads();
 
@@ -105,26 +138,41 @@ function renderLeadsList(leads) {
   const container = document.getElementById('leads-list');
   if (!container) return;
   if (!leads.length) {
-    container.innerHTML = '<p class="text-sm text-slate-400 text-center py-8">Sin resultados</p>';
+    container.innerHTML = '<p class="text-sm text-slate-400 text-center py-12">Sin resultados</p>';
     return;
   }
-  container.innerHTML = leads.map(l => `
-    <div class="bg-white border border-slate-200 rounded-xl p-4 cursor-pointer hover:border-[#0d5c8c] hover:bg-[#e8f4fd]/30 transition lead-card ${_currentLeadId === l.id ? 'border-[#0d5c8c] bg-[#e8f4fd]/50' : ''}"
+
+  const colorAvatar = seg => seg === 'mayorista' ? '#0d5c8c' : '#25a244';
+
+  container.innerHTML = leads.map(l => {
+    const inicial = (l.nombre || l.telefono || '?').charAt(0).toUpperCase();
+    const avatarBg = colorAvatar(l.segmento);
+    const hora = l.updatedAt || l.createdAt
+      ? new Date(l.updatedAt || l.createdAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+      : '';
+    const isActive = _currentLeadId === l.id;
+    return `
+    <div class="flex items-center gap-3 px-3 py-3 cursor-pointer lead-card border-b border-slate-100 hover:bg-slate-50 transition ${isActive ? 'bg-[#e8f4fd]' : ''}"
       data-lead-id="${l.id}"
       onclick="verLead('${l.id}')">
-      <div class="flex items-start justify-between gap-2">
-        <div class="min-w-0">
-          <p class="text-sm font-semibold text-slate-800 truncate">${escHtml(l.nombre)}</p>
-          <p class="text-xs text-slate-500 truncate">${escHtml(l.telefono)}</p>
+      <!-- Avatar -->
+      <div class="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white text-base font-semibold"
+        style="background:${avatarBg};">
+        ${inicial}
+      </div>
+      <!-- Info -->
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between gap-1">
+          <p class="text-sm font-semibold text-slate-800 truncate">${escHtml(l.nombre || l.telefono)}</p>
+          <span class="text-xs text-slate-400 shrink-0">${hora}</span>
         </div>
-        ${estadoBadge(l.estado)}
+        <div class="flex items-center justify-between gap-1 mt-0.5">
+          <p class="text-xs text-slate-500 truncate">${escHtml(l.telefono)}</p>
+          ${estadoBadge(l.estado)}
+        </div>
       </div>
-      <div class="mt-2 flex items-center gap-2 flex-wrap">
-        ${badge(l.segmento || 'Ecommerce', l.segmento === 'mayorista' ? 'ocean' : 'green')}
-        ${badge(l.origen || 'web', 'gray')}
-      </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 async function verLead(id) {
