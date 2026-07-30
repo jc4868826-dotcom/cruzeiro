@@ -493,12 +493,19 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── PASO 5-6: Buscar productos relevantes ────────────────────────────────
-  const queryAcumulado = historialConv
+  // Query con mensajes del cliente + últimos mensajes del bot (para capturar
+  // contexto cuando el cliente responde "si" a una oferta del bot)
+  const mensajesCliente = historialConv
     .filter(m => m.rol === 'cliente')
     .slice(-5)
-    .map(m => m.texto)
-    .concat([texto])
-    .join(' ');
+    .map(m => m.texto);
+
+  const mensajesBot = historialConv
+    .filter(m => m.rol === 'bot')
+    .slice(-3)
+    .map(m => m.texto);
+
+  const queryAcumulado = [...mensajesCliente, ...mensajesBot, texto].join(' ');
 
   const productosCtx = getCatalogAdapter().buscar(queryAcumulado);
   const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
