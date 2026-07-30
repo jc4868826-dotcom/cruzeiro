@@ -166,10 +166,22 @@ function formatPrice(n) {
 }
 
 function buildSystemPrompt(productosContexto, contextoCliente = null, conocimientoContexto = null, historialConv = []) {
-  const catalogoTexto = Array.isArray(productosContexto) && productosContexto.length > 0
-    ? productosContexto.map(p =>
-        `• ${p.nombre_web} | PRECIO: $${Number(p.precio||0).toLocaleString('es-CL')} | Stock: ${p.stock ?? 'disponible'} ${p.unidad||''} | SKU: ${p.sku}`
-      ).join('\n')
+  const { agruparVariantes } = getCatalogAdapter();
+  const grupos = Array.isArray(productosContexto) && productosContexto.length > 0
+    ? agruparVariantes(productosContexto)
+    : [];
+
+  const catalogoTexto = grupos.length > 0
+    ? grupos.map(g => {
+        const variantesTexto = g.variantes.map(v => {
+          const precioFmt = `$${Number(v.precio).toLocaleString('es-CL')}`;
+          const stockTexto = v.stock !== null && v.stock > 0 ? `stock: ${Math.floor(v.stock)} ${v.unidad}` : 'consultar stock';
+          if (v.tipo === 'metro') return `  → Por metro lineal: ${precioFmt}/mt | ${stockTexto} | SKU: ${v.sku}`;
+          if (v.tipo === 'rollo') return `  → Rollo completo: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
+          return `  → Por unidad: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
+        }).join('\n');
+        return `• ${g.nombre}\n${variantesTexto}`;
+      }).join('\n\n')
     : 'No encontré productos para esta consulta. Pide más detalles al cliente para afinar la búsqueda.';
 
   const conocimientoTexto = Array.isArray(conocimientoContexto) && conocimientoContexto.length > 0
@@ -296,12 +308,24 @@ Si el cliente menciona: cotización formal, proyecto, volumen grande, instalaci�
 ═══════════════════════════════════
 CÓMO LEER EL CATÁLOGO
 ═══════════════════════════════════
-El catálogo lista cada variante como producto separado. Lee el nombre para entender la unidad:
-- "Rollo de 20 mts" → se vende el rollo completo
-- "Por Metro" o "x 1,0mt" o "ML" → se vende por metro lineal
-- "x 1,6mt" o "x 2mt" → es el ANCHO del rollo, no la longitud
-- "palmeta" o "plancha" o "m²" → se vende por unidad o m²
-Cuando hay variante rollo Y metro, presenta AMBAS al cliente y explica la diferencia.
+Los productos ya vienen agrupados con sus variantes. Cada grupo tiene:
+- Nombre del producto
+  → Por metro lineal: $X/mt | stock: N mt | SKU: XXXXX
+  → Rollo completo: $Y | stock: disponible | SKU: XXXXX-20
+
+REGLA — elige la variante correcta según la cantidad del cliente:
+- Si el cliente necesita una cantidad específica de metros o m² → usa la variante "Por metro lineal"
+- Si el cliente quiere un rollo completo o es volumen grande → usa la variante "Rollo completo"
+- Si solo hay una variante disponible → ofrécela explicando el formato
+
+CÓMO PRESENTAR las variantes:
+"Para tus 10 m² tenemos el Piso Goma Estoperol Negro 3mm disponible:
+- Por metro a $7.904/mt → necesitas 10 metros = $79.040 total (SKU: I271PIST01NE)
+- O rollo completo de 20 metros a $129.150 si necesitas más adelante (SKU: I271PIST01NE-20)
+¿Cuál te conviene más?"
+
+NUNCA mezcles precios de variantes distintas.
+NUNCA muestres precio 0 o precio 1 — si todas las variantes tienen precio inválido, di "te confirmo el precio con tu ejecutivo".
 
 ═══════════════════════════════════
 CONOCIMIENTO TÉCNICO

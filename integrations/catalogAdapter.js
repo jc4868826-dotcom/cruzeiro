@@ -66,7 +66,10 @@ function normalizar(str) {
 function detectarSubcategorias(qNorm) {
   const subcats = new Set();
   for (const [clave, cats] of Object.entries(SINONIMOS)) {
-    if (qNorm.includes(normalizar(clave))) {
+    const claveNorm = normalizar(clave);
+    // Word-boundary check: evita que "tope" matchee dentro de "estoperol"
+    const re = new RegExp('(?:^|\\s)' + claveNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)');
+    if (re.test(qNorm)) {
       for (const c of cats) subcats.add(c);
     }
   }
@@ -171,4 +174,52 @@ function getTodos() {
   return datos.getTodosCatalogo();
 }
 
-module.exports = { buscar, buscarConocimiento, buscarPorSubcategorias, listarSubcategorias, obtenerResumenCatalogo, obtenerTodoElConocimiento, getTodos };
+function agruparVariantes(productos) {
+  const grupos = new Map();
+
+  for (const p of productos) {
+    // SKU base = todo antes del primer guion (ej: I271PIST01NE-20 → I271PIST01NE)
+    const skuBase = p.sku.split('-')[0];
+
+    if (!grupos.has(skuBase)) {
+      grupos.set(skuBase, {
+        skuBase,
+        nombre: p.nombre_web,
+        subcategoria: p.subcategoria,
+        variantes: [],
+      });
+    }
+
+    const grupo = grupos.get(skuBase);
+
+    // Determinar tipo de variante según nombre y precio
+    const nombreLower = (p.nombre_web || '').toLowerCase();
+    const esRollo = nombreLower.includes('rollo') || p.sku.includes('-20') || p.sku.includes('-25');
+    const esPorMetro = !esRollo && (p.unidad === 'MT' || p.unidad === 'mt' || p.unidad === 'ML');
+    const esPorUnidad = !esRollo && !esPorMetro;
+
+    // Solo agregar si tiene precio válido (> 1)
+    if (!p.precio || p.precio <= 1) continue;
+
+    grupo.variantes.push({
+      sku: p.sku,
+      tipo: esRollo ? 'rollo' : esPorMetro ? 'metro' : 'unidad',
+      precio: p.precio,
+      stock: p.stock,
+      unidad: p.unidad || 'C/U',
+      nombre_web: p.nombre_web,
+    });
+  }
+
+  // Ordenar variantes: metro primero, luego rollo, luego unidad
+  for (const grupo of grupos.values()) {
+    grupo.variantes.sort((a, b) => {
+      const orden = { metro: 0, unidad: 1, rollo: 2 };
+      return (orden[a.tipo] ?? 3) - (orden[b.tipo] ?? 3);
+    });
+  }
+
+  return [...grupos.values()].filter(g => g.variantes.length > 0);
+}
+
+module.exports = { buscar, buscarConocimiento, buscarPorSubcategorias, listarSubcategorias, obtenerResumenCatalogo, obtenerTodoElConocimiento, getTodos, agruparVariantes };
