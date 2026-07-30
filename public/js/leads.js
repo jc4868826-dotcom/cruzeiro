@@ -5,59 +5,41 @@ let _currentLead = null;
 
 async function renderLeads(container) {
   container.innerHTML = `
-    <div class="flex gap-6" style="height: calc(100vh - 140px)">
-      <!-- Lista de leads (izquierda) -->
-      <div class="w-80 shrink-0 flex flex-col gap-3">
-        <!-- Filtros -->
-        <div class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-          <input id="lead-search" type="text" placeholder="Buscar nombre o teléfono..."
+    <div class="flex gap-5" style="height:calc(100vh - 140px)">
+
+      <!-- Lista izquierda -->
+      <div class="w-72 shrink-0 flex flex-col gap-3">
+
+        <!-- Búsqueda rápida -->
+        <div class="bg-white border border-slate-200 rounded-xl p-3">
+          <input id="lead-search" type="text" placeholder="🔍 Buscar nombre o teléfono..."
             class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0d5c8c] focus:ring-1 focus:ring-[#0d5c8c]/20"
             oninput="filtrarLeads()">
-          <select id="lead-estado"
-            class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]"
-            onchange="filtrarLeads()">
-            <option value="">Todos los estados</option>
-            <option>Nuevo</option>
-            <option>Contactado</option>
-            <option>Cotizado</option>
-            <option>Pedido Enviado</option>
-            <option>Cerrado</option>
-            <option>Abandonado</option>
-          </select>
-          <select id="lead-segmento"
-            class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]"
-            onchange="filtrarLeads()">
+        </div>
+
+        <!-- Filtros compactos -->
+        <div class="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+          <select id="lead-segmento" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
             <option value="">Todos los segmentos</option>
-            <option value="ecommerce">Ecommerce</option>
-            <option value="mayorista">Mayorista</option>
+            <option value="ecommerce">🟢 Ecommerce</option>
+            <option value="mayorista">🔵 Mayorista</option>
           </select>
-          <select id="lead-origen"
-            class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]"
-            onchange="filtrarLeads()">
+          <select id="lead-estado" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
+            <option value="">Todos los estados</option>
+            <option>Nuevo</option><option>Contactado</option><option>Cotizado</option>
+            <option>Pedido Enviado</option><option>Cerrado</option><option>Abandonado</option>
+          </select>
+          <select id="lead-origen" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
             <option value="">Todos los orígenes</option>
+            <option value="whatsapp">WhatsApp</option>
             <option value="web">Web</option>
             <option value="chat_test">Chat de Prueba</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="referido">Referido</option>
           </select>
           <div class="flex gap-2">
-            <div class="flex-1">
-              <label class="text-xs text-slate-400 block mb-1">Desde</label>
-              <input id="lead-fecha-desde" type="date"
-                class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#0d5c8c]"
-                onchange="filtrarLeads()">
-            </div>
-            <div class="flex-1">
-              <label class="text-xs text-slate-400 block mb-1">Hasta</label>
-              <input id="lead-fecha-hasta" type="date"
-                class="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#0d5c8c]"
-                onchange="filtrarLeads()">
-            </div>
+            <input id="lead-fecha-desde" type="date" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
+            <input id="lead-fecha-hasta" type="date" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
           </div>
-          <button onclick="limpiarFiltrosLeads()"
-            class="w-full text-xs text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition">
-            Limpiar filtros
-          </button>
+          <button onclick="limpiarFiltrosLeads()" class="w-full text-xs text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition">Limpiar filtros</button>
         </div>
 
         <!-- Lista -->
@@ -65,24 +47,20 @@ async function renderLeads(container) {
           <div class="text-sm text-slate-400 text-center py-8">Cargando leads...</div>
         </div>
 
-        <!-- Botón nuevo lead -->
         <button onclick="mostrarFormNuevoLead()"
-          class="w-full bg-[#0d5c8c] hover:bg-[#0a4a73] text-white text-sm font-semibold py-2.5 rounded-lg transition flex items-center justify-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-          </svg>
+          class="w-full bg-[#0d5c8c] hover:bg-[#0a4a73] text-white text-sm font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           Nuevo Lead
         </button>
       </div>
 
-      <!-- Panel detalle (derecha) -->
+      <!-- Panel derecho -->
       <div id="lead-detail" class="flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
-        <div class="flex-1 flex flex-col items-center justify-center text-slate-300 gap-3">
-          <svg class="w-12 h-12 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-          </svg>
-          <p class="text-sm">Selecciona un lead para ver el detalle</p>
+        <div class="flex-1 flex flex-col items-center justify-center gap-4 text-slate-300">
+          <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
+            <svg class="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          </div>
+          <p class="text-sm text-slate-400">Selecciona un lead para ver el detalle</p>
         </div>
       </div>
     </div>
