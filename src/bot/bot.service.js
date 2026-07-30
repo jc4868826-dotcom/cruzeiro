@@ -346,10 +346,18 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
 // ─── Main processor ───────────────────────────────────────────────────────────
 
 async function procesarMensaje(phone, texto, conversacionExistente = null, opciones = {}) {
-  const { testMode = false, canal_tipo = 'web_whatsapp' } = opciones;
+  const { testMode = false, canal_tipo = 'web_whatsapp', nombrePerfil = null } = opciones;
   logger.info(`Bot [${phone}]: "${texto.slice(0, 60)}"`);
 
+  // ── Nombre de perfil WhatsApp (Meta) ──────────────────────────────────────
+  // Se usa solo si el lead no tiene nombre aún. No sobreescribe nombre de empresa.
   const leadUpdate = {};
+  if (nombrePerfil) {
+    leadUpdate.nombre = nombrePerfil;
+    if (!getEstado(phone).clienteNombre) {
+      setEstado(phone, { clienteNombre: nombrePerfil });
+    }
+  }
 
   // ── PASO 1: Leer estado actual ────────────────────────────────────────────
   const estado = getEstado(phone);

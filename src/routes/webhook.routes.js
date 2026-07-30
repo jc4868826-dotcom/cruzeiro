@@ -46,10 +46,16 @@ async function procesarMensajeWhatsApp(phone, texto, value) {
   try {
     console.log('[webhook] Procesando:', phone, texto.slice(0, 50));
 
+    const contactos = value?.contacts || [];
+    const nombrePerfil = contactos[0]?.profile?.name || null;
+
     const conversaciones = await db.getAll('conversaciones');
     const conversacionExistente = conversaciones.find(c => c.phone === phone) || null;
 
-    const resultado = await botService.procesarMensaje(phone, texto, conversacionExistente, { canal: 'whatsapp' });
+    const resultado = await botService.procesarMensaje(phone, texto, conversacionExistente, {
+      canal_tipo: 'web_whatsapp',
+      nombrePerfil,
+    });
 
     console.log('[webhook] Resultado:', JSON.stringify({
       tieneRespuesta: !!resultado?.respuesta,
