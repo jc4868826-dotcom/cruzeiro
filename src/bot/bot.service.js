@@ -504,6 +504,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // Releer estado tras posible actualización
   const estadoActual = getEstado(phone);
+  if (!estadoActual.canal && conversacionExistente?.canal) {
+    estadoActual.canal = conversacionExistente.canal;
+  }
 
   if (!estadoActual.clienteNombre) {
     const matchNombre = texto.match(/(?:me llamo|soy|mi nombre es)\s+([A-Za-záéíóúñÁÉÍÓÚÑ\s]{3,40})/i);
@@ -570,7 +573,8 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   const queryAcumulado = [...mensajesCliente, ...mensajesBot, texto].join(' ');
 
-  const productosCtx = getCatalogAdapter().buscar(queryAcumulado);
+  const canalActual = estadoActual?.canal || conversacionExistente?.canal || 'ecommerce';
+  const productosCtx = getCatalogAdapter().buscar(queryAcumulado, canalActual);
   const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
 
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────
@@ -630,6 +634,8 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
         nombre: leadUpdate.nombre || nombrePerfil || 'Cliente WhatsApp',
         origen: 'whatsapp',
         estado: 'Nuevo',
+        canal: 'ecommerce',
+        segmento: 'ecommerce',
         bot_activo: true,
         ...leadUpdate,
       });

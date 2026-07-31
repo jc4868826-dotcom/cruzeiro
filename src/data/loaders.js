@@ -47,22 +47,25 @@ function loadWeb(excelDir) {
 function buildCatalogo(maestraMap, webArray) {
   return webArray.map(item => {
     const h1    = maestraMap.get(item.sku) || {};
-    const precio = h1.precioVenta != null ? h1.precioVenta : item.precio;
-    const stock  = h1.stock !== undefined ? h1.stock : null;
+    const precio_web       = item.precio != null && item.precio > 1 ? item.precio : null;
+    const precio_mayorista = h1.precioVenta != null && h1.precioVenta > 1 ? h1.precioVenta : null;
+
     return {
       sku:                  item.sku,
       nombre_web:           item.nombreWeb,
       descripcion:          item.descripcionCorta,
-      precio,
-      precio_lista:         h1.precioVenta || null,
+      precio_web,
+      precio_mayorista,
+      precio:               precio_web,        // ← default para no romper nada existente
+      precio_lista:         precio_mayorista,
       categoria:            item.categoria,
       subcategoria:         item.subcategoria,
       imagen_url:           item.urlImagen,
       familia:              h1.familia      || '',
       padre_familia:        h1.padreFamilia || '',
       unidad:               h1.unidad       || 'C/U',
-      stock,
-      tiene_stock:          stock === null || stock > 0,
+      stock:                h1.stock !== undefined ? h1.stock : null,
+      tiene_stock:          (h1.stock === null || h1.stock === undefined || h1.stock > 0),
       atributos:            '',
       conocimiento_tecnico: '',
     };

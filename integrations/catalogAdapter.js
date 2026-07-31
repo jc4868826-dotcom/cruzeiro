@@ -76,7 +76,14 @@ function detectarSubcategorias(qNorm) {
   return subcats;
 }
 
-function buscar(query) {
+function aplicarPrecioCanal(p, canal) {
+  const precio = canal === 'mayorista'
+    ? (p.precio_mayorista || p.precio_web || p.precio)
+    : (p.precio_web       || p.precio);
+  return { ...p, precio };
+}
+
+function buscar(query, canal = 'ecommerce') {
   const catalogo = datos.getTodosCatalogo();
   const q = normalizar(query);
   const tokens = q.split(/\s+/).filter(t => t.length > 2);
@@ -108,10 +115,10 @@ function buscar(query) {
   .sort((a, b) => b.score - a.score || (b.p.tiene_stock ? 1 : 0) - (a.p.tiene_stock ? 1 : 0));
 
   if (!scored.length && subcatsFromSinonimos.size > 0) {
-    return buscarPorSubcategorias([...subcatsFromSinonimos]);
+    return buscarPorSubcategorias([...subcatsFromSinonimos], canal);
   }
 
-  return scored.slice(0, 8).map(x => x.p);
+  return scored.slice(0, 8).map(x => aplicarPrecioCanal(x.p, canal));
 }
 
 function buscarConocimiento(query) {
@@ -137,7 +144,7 @@ function buscarConocimiento(query) {
   }));
 }
 
-function buscarPorSubcategorias(subcategorias) {
+function buscarPorSubcategorias(subcategorias, canal = 'ecommerce') {
   const catalogo = datos.getTodosCatalogo();
   const subcatsNorm = subcategorias.map(s => s.toLowerCase().trim());
   return catalogo
@@ -146,7 +153,8 @@ function buscarPorSubcategorias(subcategorias) {
       if (b.tiene_stock !== a.tiene_stock) return b.tiene_stock ? 1 : -1;
       return (a.precio || 0) - (b.precio || 0);
     })
-    .slice(0, 8);
+    .slice(0, 8)
+    .map(p => aplicarPrecioCanal(p, canal));
 }
 
 function listarSubcategorias() {
