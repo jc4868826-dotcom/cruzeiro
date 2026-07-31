@@ -18,6 +18,7 @@ function getEstado(phone) {
     ejecutivoAsignado: null,
     clienteNombre: null,
     subcategoriasActivas: null,
+    intentos_rut_fallidos: 0,
   };
 }
 
@@ -459,7 +460,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     .filter(m => m.rol === 'cliente' || m.rol === 'bot');
 
   // ── PASO 2: Detección silenciosa de RUT (siempre, en cualquier etapa) ────
-  if (!estado.rut) {
+  if (!estado.rut && !estado.rut_no_encontrado) {
     const rutExtraido = extraerRut(texto);
     if (rutExtraido) {
       const rutNorm = normalizarRut(rutExtraido);
@@ -489,14 +490,28 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
         if (cliente.email)     leadUpdate.email     = cliente.email;
         if (cliente.ultima_venta) leadUpdate.ultima_compra = cliente.ultima_venta;
       } else {
-        setEstado(phone, { etapa: 'activo', canal: 'ecommerce', rut: rutNorm });
-        leadUpdate.rut = rutNorm;
-        leadUpdate.segmento = 'ecommerce';
-        leadUpdate.canal = 'ecommerce';
-        const ejecutivosEcom = ['marcelis.arguelles', 'mauricio.santibanez'];
-        const ecomIdx = Math.floor(Date.now() / 60000) % ejecutivosEcom.length;
-        if (!leadUpdate.ejecutivo_asignado) {
+        // RUT no encontrado — manejar reintentos
+        const intentosPrevios = estado.intentos_rut_fallidos || 0;
+        const nuevosIntentos = intentosPrevios + 1;
+
+        if (nuevosIntentos >= 2) {
+          setEstado(phone, {
+            etapa: 'activo',
+            canal: 'ecommerce',
+            intentos_rut_fallidos: nuevosIntentos,
+            rut_no_encontrado: true,
+          });
+          leadUpdate.segmento = 'ecommerce';
+          leadUpdate.canal = 'ecommerce';
+          const ejecutivosEcom = ['marcelis.arguelles', 'mauricio.santibanez'];
+          const ecomIdx = Math.floor(Date.now() / 60000) % ejecutivosEcom.length;
           leadUpdate.ejecutivo_asignado = ejecutivosEcom[ecomIdx];
+        } else {
+          setEstado(phone, {
+            intentos_rut_fallidos: nuevosIntentos,
+            rut_fallido_previo: rutNorm,
+          });
+          // No tocar leadUpdate — no grabar nada del RUT fallido
         }
       }
     }
@@ -579,7 +594,13 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────
   let identificacionHint = '';
-  if (!estadoActual.rut && historialConv.length < 4) {
+  if (estadoActual.rut_no_encontrado) {
+    // RUT no encontrado tras 2 intentos — tratar como ecommerce, no volver a pedir RUT
+    identificacionHint = '';
+  } else if (estadoActual.intentos_rut_fallidos === 1) {
+    // Primer intento fallido — esperar sin presionar
+    identificacionHint = '';
+  } else if (!estadoActual.rut && historialConv.length < 4) {
     identificacionHint = 'En el próximo intercambio, si no lo has hecho, pregunta naturalmente si el cliente ha comprado antes con nosotros.';
   } else if (!estadoActual.rut && historialConv.length >= 4) {
     identificacionHint = 'Ya llevas varios mensajes sin identificar al cliente. Menciona naturalmente que podrías atenderlo mejor si supieras si es cliente habitual.';
