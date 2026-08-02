@@ -83,6 +83,48 @@ function calcularMetrics(leads, conversaciones, campanas) {
     },
   };
 
+  // ── Clasificación de interés ──────────────────────────────────────────────
+  const intenciones = {};
+  leads.forEach(l => {
+    const k = l.intencion_principal || 'sin_clasificar';
+    intenciones[k] = (intenciones[k] || 0) + 1;
+  });
+
+  const intenciones_ecommerce = {};
+  leadsMin.forEach(l => {
+    const k = l.intencion_principal || 'sin_clasificar';
+    intenciones_ecommerce[k] = (intenciones_ecommerce[k] || 0) + 1;
+  });
+
+  const intenciones_mayorista = {};
+  leadsMay.forEach(l => {
+    const k = l.intencion_principal || 'sin_clasificar';
+    intenciones_mayorista[k] = (intenciones_mayorista[k] || 0) + 1;
+  });
+
+  // ── Calidad de leads ──────────────────────────────────────────────────────
+  const calidad = {
+    bajo: 0, medio: 0, alto: 0, convertido: 0,
+    ecommerce: { bajo: 0, medio: 0, alto: 0, convertido: 0 },
+    mayorista: { bajo: 0, medio: 0, alto: 0, convertido: 0 },
+  };
+  leads.forEach(l => {
+    const q   = l.calidad_lead || 'bajo';
+    const seg = l.segmento === 'mayorista' ? 'mayorista' : 'ecommerce';
+    calidad[q] = (calidad[q] || 0) + 1;
+    calidad[seg][q] = (calidad[seg][q] || 0) + 1;
+  });
+
+  // ── Familias de producto ──────────────────────────────────────────────────
+  const famMap = {};
+  leads.forEach(l => {
+    if (l.familia_interes) famMap[l.familia_interes] = (famMap[l.familia_interes] || 0) + 1;
+  });
+  const familias = Object.entries(famMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([nombre, total]) => ({ nombre, total }));
+
   return {
     volumen_conversaciones: conversaciones.length,
     volumen_lead_ids,
@@ -94,6 +136,11 @@ function calcularMetrics(leads, conversaciones, campanas) {
     abandonos_lead_ids,
     rendimiento_campanas: rendimiento,
     segmento,
+    intenciones,
+    intenciones_ecommerce,
+    intenciones_mayorista,
+    calidad,
+    familias,
   };
 }
 
