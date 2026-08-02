@@ -121,12 +121,14 @@ async function renderDashboard(container, prefetched = null, filterState = null)
             <svg id="acc-ecommerce-chevron" class="w-5 h-5 text-slate-400" style="transition:transform .2s" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </button>
           <div id="acc-ecommerce-body" class="border-t border-slate-100 px-5 pb-5">
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4">
-              ${miniKpiCard('Conversaciones', seg.conversaciones?.ecommerce??'—','chats','conversaciones','ecommerce')}
+            <div class="grid grid-cols-3 gap-3 pt-4">
               ${miniKpiCard('Conversión', minPct+'%', `${minConv.convertidos} de ${minConv.total}`,'cerrados','ecommerce')}
               ${miniKpiCard('Abandonos', seg.abandonos?.ecommerce??'—','leads','abandonos','ecommerce')}
               ${miniKpiCard('Derivaciones', seg.derivaciones_humano?.ecommerce??'—','a ejecutivo','derivaciones','ecommerce')}
             </div>
+            ${subAccordionHtml('ecommerce-intenciones','Clasificación de interés','<div class="py-2 text-xs text-slate-400 text-center">Cargando...</div>')}
+            ${subAccordionHtml('ecommerce-calidad','Calidad de leads',renderCalidadRows(metrics,'ecommerce'))}
+            ${subAccordionHtml('ecommerce-familias','Familias consultadas',renderFamiliasRows(metrics))}
           </div>
         </div>
 
@@ -140,12 +142,13 @@ async function renderDashboard(container, prefetched = null, filterState = null)
             <svg id="acc-mayorista-chevron" class="w-5 h-5 text-slate-400" style="transform:rotate(-90deg);transition:transform .2s" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </button>
           <div id="acc-mayorista-body" class="border-t border-slate-100 px-5 pb-5 hidden">
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4">
-              ${miniKpiCard('Conversaciones', seg.conversaciones?.mayorista??'—','chats','conversaciones','mayorista')}
+            <div class="grid grid-cols-3 gap-3 pt-4">
               ${miniKpiCard('Conversión', mayPct+'%', `${mayConv.convertidos} de ${mayConv.total}`,'cerrados','mayorista')}
               ${miniKpiCard('Abandonos', seg.abandonos?.mayorista??'—','leads','abandonos','mayorista')}
               ${miniKpiCard('Derivaciones', seg.derivaciones_humano?.mayorista??'—','a ejecutivo','derivaciones','mayorista')}
             </div>
+            ${subAccordionHtml('mayorista-intenciones','Clasificación de interés','<div class="py-2 text-xs text-slate-400 text-center">Cargando...</div>')}
+            ${subAccordionHtml('mayorista-calidad','Calidad de leads',renderCalidadRows(metrics,'mayorista'))}
           </div>
         </div>
 
@@ -319,6 +322,7 @@ async function renderDashboard(container, prefetched = null, filterState = null)
   if (window._relojInt) clearInterval(window._relojInt);
   window._relojInt = setInterval(_tickReloj, 1000);
   setTimeout(refreshUltimosLeads, 150);
+  setTimeout(refreshSegmentIntenciones, 250);
 }
 
 function miniKpiCard(title, value, sub, kpiKey, segmento) {
@@ -445,6 +449,211 @@ async function refreshUltimosLeads() {
         </span>
       </div>`).join('');
   } catch(_) {}
+}
+
+// ─── Sub-acordeón helper ──────────────────────────────────────────────────────
+
+function subAccordionHtml(id, title, bodyHtml) {
+  return `
+    <div class="mt-3 border border-slate-100 rounded-xl overflow-hidden">
+      <button onclick="toggleSubAccordion('${id}')"
+        class="w-full flex items-center justify-between px-4 py-2.5 text-left bg-slate-50/80 hover:bg-slate-100 transition">
+        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide">${title}</span>
+        <svg id="sub-${id}-chevron" class="w-4 h-4 text-slate-400 shrink-0"
+          style="transform:rotate(-90deg);transition:transform .2s"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <div id="sub-${id}-body" class="hidden px-4 pb-3 pt-1 space-y-0.5">
+        ${bodyHtml}
+      </div>
+    </div>
+  `;
+}
+
+function toggleSubAccordion(id) {
+  const body = document.getElementById(`sub-${id}-body`);
+  const chevron = document.getElementById(`sub-${id}-chevron`);
+  if (!body) return;
+  const isOpen = !body.classList.contains('hidden');
+  if (isOpen) {
+    body.classList.add('hidden');
+    if (chevron) chevron.style.transform = 'rotate(-90deg)';
+  } else {
+    body.classList.remove('hidden');
+    if (chevron) chevron.style.transform = '';
+  }
+}
+
+// ─── Sección B: Calidad de leads (render sincrónico desde metrics) ────────────
+
+function renderCalidadRows(metrics, segmento) {
+  const cal = metrics.calidad?.[segmento] || {};
+  const rows = [
+    { key: 'bajo',      label: 'Bajo',       dot: 'bg-slate-400',   bar: 'bg-slate-400',   text: 'text-slate-600',   sub: '1 mensaje, sin continuidad' },
+    { key: 'medio',     label: 'Medio',      dot: 'bg-amber-400',   bar: 'bg-amber-400',   text: 'text-amber-600',   sub: 'Interactuó, sin señal de compra' },
+    { key: 'alto',      label: 'Alto',       dot: 'bg-blue-400',    bar: 'bg-blue-400',    text: 'text-blue-600',    sub: 'Pidió precio, medidas o link' },
+    { key: 'convertido',label: 'Convertido', dot: 'bg-emerald-400', bar: 'bg-emerald-400', text: 'text-emerald-600', sub: 'Recibió link o fue derivado' },
+  ];
+  const max = Math.max(...rows.map(r => cal[r.key] || 0), 1);
+  return rows.map(r => {
+    const n = cal[r.key] || 0;
+    const pct = Math.round((n / max) * 100);
+    return `
+      <div onclick="showSegmentDetail('${segmento}','calidad_lead','${r.key}')"
+        class="flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+        <span class="w-2.5 h-2.5 rounded-full ${r.dot} shrink-0"></span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-700">${r.label}</span>
+            <span class="text-xs font-bold ${r.text} ml-2">${n}</span>
+          </div>
+          <div class="text-xs text-slate-400 mt-0.5 mb-1">${r.sub}</div>
+          <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div class="h-full ${r.bar} rounded-full transition-all" style="width:${pct}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Sección C: Familias consultadas (solo ecommerce, render sincrónico) ──────
+
+function renderFamiliasRows(metrics) {
+  const familias = metrics.familias || [];
+  if (!familias.length) return '<p class="text-xs text-slate-400 py-2 text-center">Sin datos</p>';
+  const max = Math.max(...familias.map(f => f.total), 1);
+  return familias.map(f => {
+    const pct = Math.round((f.total / max) * 100);
+    return `
+      <div class="flex items-center gap-3 py-1.5">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-700 truncate">${escHtml(f.nombre)}</span>
+            <span class="text-xs font-bold text-[#0d5c8c] ml-2">${f.total}</span>
+          </div>
+          <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+            <div class="h-full bg-[#0d5c8c] rounded-full transition-all" style="width:${pct}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Sección A: Clasificación de interés (async, carga leads desde API) ───────
+
+const _INTENCION_LABELS = {
+  producto:         'Interés en producto',
+  precio:           'Consulta de precio',
+  stock:            'Consulta de stock',
+  consulta_pedido:  'Estado de pedido',
+  pago:             'Proceso de pago',
+  mayorista:        'Canal mayorista',
+  info_general:     'Información general',
+  consulta_catalogo:'Catálogo general',
+  sin_clasificar:   'Sin clasificar',
+};
+
+const _INTENCION_COLORS = [
+  'bg-violet-400','bg-blue-400','bg-emerald-400','bg-amber-400',
+  'bg-rose-400','bg-indigo-400','bg-teal-400','bg-orange-400','bg-slate-400',
+];
+
+async function refreshSegmentIntenciones() {
+  try {
+    const res = await api.get('/api/leads?limit=500');
+    const leads = res.data || [];
+    ['ecommerce', 'mayorista'].forEach(seg => {
+      const bodyEl = document.getElementById(`sub-${seg}-intenciones-body`);
+      if (!bodyEl) return;
+      const segLeads = leads.filter(l => (l.segmento || 'ecommerce') === seg);
+      const counts = {};
+      segLeads.forEach(l => {
+        const k = l.intencion_principal || 'sin_clasificar';
+        counts[k] = (counts[k] || 0) + 1;
+      });
+      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      if (!sorted.length) {
+        bodyEl.innerHTML = '<p class="text-xs text-slate-400 py-2 text-center">Sin datos</p>';
+        return;
+      }
+      const max = sorted[0][1];
+      bodyEl.innerHTML = sorted.map(([k, n], i) => {
+        const label = _INTENCION_LABELS[k] || k;
+        const pct = Math.round((n / max) * 100);
+        const dotColor = _INTENCION_COLORS[i % _INTENCION_COLORS.length];
+        return `
+          <div onclick="showSegmentDetail('${seg}','intencion_principal','${k}')"
+            class="flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+            <span class="w-2.5 h-2.5 rounded-full ${dotColor} shrink-0"></span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-slate-700">${label}</span>
+                <span class="text-xs font-bold text-slate-800 ml-2">${n}</span>
+              </div>
+              <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+                <div class="h-full ${dotColor} rounded-full transition-all" style="width:${pct}%"></div>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    });
+  } catch (_) {}
+}
+
+// ─── Panel lateral: detalle por segmento + campo ─────────────────────────────
+
+async function showSegmentDetail(segmento, campo, valor) {
+  document.getElementById('kpi-detail-panel')?.remove();
+  const panel = document.createElement('div');
+  panel.id = 'kpi-detail-panel';
+  panel.className = 'fixed inset-y-0 right-0 w-96 bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col';
+
+  const _CALIDAD_LABELS = { bajo: 'Bajo', medio: 'Medio', alto: 'Alto', convertido: 'Convertido' };
+  const valorLabel = _INTENCION_LABELS[valor] || _CALIDAD_LABELS[valor] || valor;
+  const segLabel = segmento === 'mayorista' ? 'Mayorista' : 'Ecommerce';
+
+  panel.innerHTML = `
+    <div class="flex items-center justify-between p-4 border-b border-slate-200" style="background:#0d5c8c">
+      <h3 class="font-semibold text-white text-sm">${segLabel} · ${valorLabel}</h3>
+      <button onclick="document.getElementById('kpi-detail-panel').remove()" class="text-white/70 hover:text-white p-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="kpi-detail-body" class="flex-1 overflow-y-auto p-4 space-y-2">
+      <div class="text-sm text-slate-400 text-center py-8">Cargando...</div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  try {
+    const res = await api.get('/api/leads?limit=200');
+    const _defaultVal = campo === 'calidad_lead' ? 'bajo' : 'sin_clasificar';
+    const filtered = (res.data || []).filter(l =>
+      (l.segmento || 'ecommerce') === segmento &&
+      (l[campo] || _defaultVal) === valor
+    );
+    document.getElementById('kpi-detail-body').innerHTML = filtered.length === 0
+      ? '<p class="text-sm text-slate-400 text-center py-8">No hay leads.</p>'
+      : filtered.map(l => `
+        <div onclick="document.getElementById('kpi-detail-panel').remove();navigate('leads');setTimeout(()=>verLead('${l.id}'),400);"
+          class="border border-slate-200 rounded-xl p-3 hover:border-[#0d5c8c] hover:bg-[#e8f4fd]/30 cursor-pointer transition">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-semibold text-slate-800 text-sm truncate">${escHtml(l.nombre||'—')}</p>
+              <p class="text-xs text-slate-500 mt-0.5">${escHtml(l.telefono||'')}</p>
+            </div>
+            ${estadoBadge(l.estado)}
+          </div>
+          <div class="mt-2 flex gap-2 flex-wrap">
+            <span class="text-xs px-2 py-0.5 rounded-full font-medium ${l.segmento==='mayorista'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'}">${l.segmento==='mayorista'?'Mayorista':'Ecommerce'}</span>
+            ${l.ejecutivo_nombre?`<span class="text-xs text-slate-400">${escHtml(l.ejecutivo_nombre)}</span>`:''}
+          </div>
+        </div>`).join('');
+  } catch {
+    document.getElementById('kpi-detail-body').innerHTML = '<span class="text-red-500 text-sm">Error al cargar.</span>';
+  }
 }
 
 async function applyDashboardFilters() {
