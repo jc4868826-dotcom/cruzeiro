@@ -257,11 +257,15 @@ Usa el CONOCIMIENTO TÉCNICO disponible.
 
 PASO 5 — PREGUNTAR CANTIDAD (obligatorio antes de mostrar precios):
 SIEMPRE pregunta cuánto necesita ANTES de mostrar precios.
-La pregunta debe ser específica según el producto:
-- Pisos en rollo → "¿Cuántos metros cuadrados necesitas cubrir?"
-- Gradas → "¿Cuántos peldaños tiene la escalera?"
-- Perfiles/rodones → "¿Cuántos metros lineales necesitas?"
-- Pastelones/palmetas → "¿Cuántos m² necesitas cubrir?"
+La pregunta debe ser específica según la unidad de medida del producto encontrado en el catálogo:
+- Unidad MT, M2 o ROL → "¿Cuántos metros cuadrados necesitas cubrir?" (o metros lineales si es perfil/rodón)
+- Unidad C/U y el producto es grada/peldaño → "¿Cuántos peldaños tiene la escalera?"
+- Unidad C/U y el producto es pastelón/palmeta/baldosa → "¿Cuántos m² necesitas cubrir?"
+- Unidad C/U y el producto es basurero, papelero, señalética, tachón, tacha, protector, cinta, correa, oring, o-ring, plancha, perfil, o cualquier ítem que se compra por pieza → "¿Cuántas unidades necesitas?"
+- Unidad KG → "¿Cuántos kilos aproximadamente necesitas?"
+- Unidad LT o litro → "¿Cuántos litros necesitas?"
+- Si no está claro → "¿Para qué lo vas a usar y cuánto necesitas aproximadamente?"
+NUNCA preguntes m² para productos que se venden por pieza o unidad individual.
 NUNCA muestres precio antes de saber la cantidad.
 
 PASO 6 — PRESENTAR (solo después de tener la cantidad):
@@ -614,6 +618,50 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
 
     const leadId = leadExistente?.id || conversacion?.lead_id;
+
+    // ── Clasificación de interés y calidad de lead ────────────────────────────
+    const _intencionDet = detectarIntencion(texto);
+    if (!leadExistente?.intencion_principal) {
+      const _tipo = _intencionDet.tipo;
+      if (_tipo !== 'saludo' && _tipo !== 'despedida' && _tipo !== 'desconocido') {
+        leadUpdate.intencion_principal = _tipo;
+      }
+    }
+
+    if (!leadExistente?.familia_interes && Array.isArray(productosCtx) && productosCtx.length > 0) {
+      const _fam = productosCtx[0].padre_familia || productosCtx[0].Padre_familia;
+      if (_fam) leadUpdate.familia_interes = _fam;
+    }
+
+    const _CALIDAD_ORDEN = ['bajo', 'medio', 'alto', 'convertido'];
+    const _canalCalidad = estadoActual.canal || conversacionExistente?.canal || 'ecommerce';
+    let _calidadCalc = 'bajo';
+    if (_canalCalidad === 'mayorista') {
+      if (leadUpdate.etapa_pipeline === 'Contactado') {
+        _calidadCalc = 'convertido';
+      } else if (estadoActual.rut || leadExistente?.rut) {
+        _calidadCalc = 'alto';
+      } else if (historialConv.filter(m => m.rol === 'cliente').length > 1) {
+        _calidadCalc = 'medio';
+      }
+    } else {
+      if (
+        respuesta.includes('cruzeirogomas.cl/carrito') ||
+        leadUpdate.etapa_pipeline === 'Contactado' ||
+        /quiero comprar|confirmo|procedo|lo compro|págalo|pagar ahora/i.test(texto)
+      ) {
+        _calidadCalc = 'convertido';
+      } else if (/precio|medida|medidas|dimensi|cuánto|cuanto|link|sku|código|especific|ficha técnica|largo|ancho|espesor|milímetro|mm\b/i.test(texto)) {
+        _calidadCalc = 'alto';
+      } else if (historialConv.filter(m => m.rol === 'cliente').length > 2) {
+        _calidadCalc = 'medio';
+      }
+    }
+    const _calidadActual = leadExistente?.calidad_lead || 'bajo';
+    const _idxActual = Math.max(0, _CALIDAD_ORDEN.indexOf(_calidadActual));
+    const _idxCalc   = Math.max(0, _CALIDAD_ORDEN.indexOf(_calidadCalc));
+    leadUpdate.calidad_lead = _CALIDAD_ORDEN[Math.max(_idxActual, _idxCalc)];
+    // ─────────────────────────────────────────────────────────────────────────
 
     if (leadId) {
       // Siempre asegurar que el phone quede registrado en el lead
