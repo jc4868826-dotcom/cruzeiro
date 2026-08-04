@@ -3,14 +3,73 @@ const dataStore = require('../data/dataStore');
 
 // ─── Búsquedas ────────────────────────────────────────────────────────────────
 
+const MESES_ES = { ene:1, jan:1, feb:2, mar:3, abr:4, apr:4, may:5, jun:6, jul:7, ago:8, aug:8, sep:9, oct:10, nov:11, dic:12, dec:12 };
+
+function _parseFechaEmision(str) {
+  if (!str) return null;
+  const parts = String(str).trim().toLowerCase().split('-');
+  if (parts.length !== 3) return null;
+  const [d, m, y] = parts;
+  const mes = MESES_ES[m];
+  if (!mes) return null;
+  const anio = parseInt(y) + (parseInt(y) < 100 ? 2000 : 0);
+  return new Date(anio, mes - 1, parseInt(d));
+}
+
+function _calcularEsMayoristaActivo(rutDigitos) {
+  const ventasFtp = dataStore.getVentasFTPRaw();
+  const fuente = ventasFtp.length ? ventasFtp : dataStore.getVentasRaw();
+  const limite = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+  return fuente.some(v => {
+    const rutV = String(v.rut || v.Rut || '').replace(/\D/g, '');
+    if (rutV !== rutDigitos) return false;
+    const fecha = _parseFechaEmision(v.fechaEmision || v.FechaEmision);
+    return fecha && fecha >= limite;
+  });
+}
+
 function buscarClientePorRut(inputRut) {
   const soloDigitos = String(inputRut).replace(/[^0-9]/g, '');
+
+  // 1. Buscar en ventasMap (Excel)
   const map = dataStore.getVentasMap();
-  if (map.has(soloDigitos)) return map.get(soloDigitos);
-  for (const [k, v] of map) {
-    if (soloDigitos.startsWith(k) || k.startsWith(soloDigitos)) return v;
+  let cliente = null;
+  if (map.has(soloDigitos)) {
+    cliente = map.get(soloDigitos);
+  } else {
+    for (const [k, v] of map) {
+      if (soloDigitos.startsWith(k) || k.startsWith(soloDigitos)) { cliente = v; break; }
+    }
   }
-  return null;
+
+  // 2. Si no encontrado, buscar en FTP clientes
+  if (!cliente) {
+    const ftpMap = dataStore.getClientesFTP();
+    if (ftpMap.has(soloDigitos)) {
+      cliente = ftpMap.get(soloDigitos);
+    } else {
+      for (const [k, v] of ftpMap) {
+        if (soloDigitos.startsWith(k) || k.startsWith(soloDigitos)) { cliente = v; break; }
+      }
+    }
+  }
+
+  if (!cliente) return null;
+
+  // 3. Calcular esMayoristaActivo
+  const esMayoristaActivo = _calcularEsMayoristaActivo(soloDigitos);
+  return { ...cliente, esMayoristaActivo };
+}
+
+function buscarCotizacionesPorRut(rutInput) {
+  const soloDigitos = String(rutInput).replace(/[^0-9]/g, '');
+  if (!soloDigitos) return [];
+  return dataStore.getCotizacionesFTP()
+    .filter(c => {
+      const rutC = String(c.rut).replace(/[^0-9]/g, '');
+      return soloDigitos === rutC || soloDigitos.startsWith(rutC) || rutC.startsWith(soloDigitos);
+    })
+    .sort((a, b) => (b.fecha > a.fecha ? 1 : b.fecha < a.fecha ? -1 : 0));
 }
 
 function buscarEjecutivo(username) {
@@ -91,6 +150,7 @@ function resolverEjecutivo(vendedor) {
 
 module.exports = {
   buscarClientePorRut,
+  buscarCotizacionesPorRut,
   buscarEjecutivo,
   buscarPedidosPorRut,
   resolverEjecutivo,

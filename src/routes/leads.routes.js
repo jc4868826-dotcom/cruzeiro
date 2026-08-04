@@ -3,6 +3,7 @@
 const express = require('express');
 const db = require('../data/db');
 const { requireAuth } = require('../middlewares/auth.middleware');
+const { buscarCotizacionesPorRut } = require('../bot/datos');
 
 const router = express.Router();
 
@@ -61,7 +62,10 @@ router.get('/:id', requireAuth, async (req, res, next) => {
     const todasConvs = await db.getAll('conversaciones');
     const conversaciones = todasConvs.filter(c => c.lead_id === lead.id);
 
-    return res.json({ ...lead, conversaciones });
+    // Embed cotizaciones FTP
+    const cotizaciones = buscarCotizacionesPorRut(lead.rut || '');
+
+    return res.json({ ...lead, conversaciones, cotizaciones });
   } catch (err) {
     next(err);
   }
