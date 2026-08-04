@@ -455,7 +455,7 @@ async function refreshUltimosLeads() {
           <p class="text-xs text-slate-400">${new Date(l.createdAt).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'})}</p>
         </div>
         <span class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ml-2 ${l.segmento==='mayorista'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'}">
-          ${l.segmento==='mayorista'?'B2B':'Web'}
+          ${l.segmento==='mayorista'?'Mayorista':'Ecommerce'}
         </span>
       </div>`).join('');
   } catch(_) {}

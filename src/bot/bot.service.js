@@ -439,6 +439,11 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     setEstado(phone, { clienteNombre: nombrePerfil });
   }
 
+  // ── Limpiar estado si es conversación nueva (evita herencia de sesiones previas) ──
+  if (!conversacionExistente || (conversacionExistente.mensajes || []).length <= 1) {
+    resetEstado(phone);
+  }
+
   // ── PASO 1: Leer estado actual ────────────────────────────────────────────
   const estado = getEstado(phone);
   const historialConv = (conversacionExistente?.mensajes || [])
@@ -446,57 +451,67 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── PASO 2: Detección silenciosa de RUT (siempre, en cualquier etapa) ────
   if (!estado.rut && !estado.rut_no_encontrado) {
-    const rutExtraido = extraerRut(texto);
-    if (rutExtraido) {
-      const rutNorm = normalizarRut(rutExtraido);
-      const cliente = datos.buscarClientePorRut(rutExtraido);
-      if (cliente) {
-        const vendedorActual = cliente.vendedor_actual || '';
-        let ejecutivoUsername = datos.resolverEjecutivo(vendedorActual);
-        const ejecutivoNombre = ejecutivoUsername ? (datos.buscarEjecutivo(ejecutivoUsername)?.nombre || null) : null;
-        const canalCliente = (cliente.canal || '').toLowerCase() === 'ecommerce' ? 'ecommerce' : 'mayorista';
-        setEstado(phone, {
-          etapa: 'activo',
-          canal: canalCliente,
-          rut: rutNorm,
-          ejecutivoAsignado: ejecutivoUsername,
-          clienteNombre: cliente.nombre || null,
-        });
-        leadUpdate.nombre = cliente.nombre || '';
-        leadUpdate.empresa = cliente.nombre || '';
-        leadUpdate.rut = rutNorm;
-        leadUpdate.segmento = canalCliente;
-        leadUpdate.canal = canalCliente;
-        leadUpdate.ejecutivo_asignado = ejecutivoUsername || null;
-        leadUpdate.ejecutivo_nombre = ejecutivoNombre || ejecutivoUsername || '';
-        if (cliente.direccion) leadUpdate.direccion = cliente.direccion;
-        if (cliente.ciudad)    leadUpdate.ciudad    = cliente.ciudad;
-        if (cliente.fono)      leadUpdate.fono      = cliente.fono;
-        if (cliente.email)     leadUpdate.email     = cliente.email;
-        if (cliente.ultima_venta) leadUpdate.ultima_compra = cliente.ultima_venta;
-      } else {
-        // RUT no encontrado — manejar reintentos
-        const intentosPrevios = estado.intentos_rut_fallidos || 0;
-        const nuevosIntentos = intentosPrevios + 1;
-
-        if (nuevosIntentos >= 2) {
+    // FIX 2: si el bot acaba de preguntar "¿eres cliente?" y el cliente dice que no → fijar ecommerce
+    const _ultimoBotMsg = historialConv.filter(m => m.rol === 'bot').slice(-1)[0]?.texto || '';
+    if (/ya eres cliente|has comprado|eres cliente/i.test(_ultimoBotMsg) &&
+        /^(no|nop|nel|para nada|negativo|nunca|tampoco|ni)\b/i.test(texto.trim())) {
+      setEstado(phone, { canal: 'ecommerce', rut: null, ejecutivoAsignado: null });
+      leadUpdate.segmento = 'ecommerce';
+      leadUpdate.canal = 'ecommerce';
+    } else {
+      const rutExtraido = extraerRut(texto);
+      if (rutExtraido) {
+        const rutNorm = normalizarRut(rutExtraido);
+        const cliente = datos.buscarClientePorRut(rutExtraido);
+        if (cliente) {
+          const vendedorActual = cliente.vendedor_actual || '';
+          let ejecutivoUsername = datos.resolverEjecutivo(vendedorActual);
+          const ejecutivoNombre = ejecutivoUsername ? (datos.buscarEjecutivo(ejecutivoUsername)?.nombre || null) : null;
+          // FIX 3: usar esMayoristaActivo (calculado por ftpLoader) en lugar de campo canal del Excel
+          const canalCliente = cliente.esMayoristaActivo === true ? 'mayorista' : 'ecommerce';
           setEstado(phone, {
             etapa: 'activo',
-            canal: 'ecommerce',
-            intentos_rut_fallidos: nuevosIntentos,
-            rut_no_encontrado: true,
+            canal: canalCliente,
+            rut: rutNorm,
+            ejecutivoAsignado: ejecutivoUsername,
+            clienteNombre: cliente.nombre || null,
           });
-          leadUpdate.segmento = 'ecommerce';
-          leadUpdate.canal = 'ecommerce';
-          const ejecutivosEcom = ['marcelis.arguelles', 'mauricio.santibanez'];
-          const ecomIdx = Math.floor(Date.now() / 60000) % ejecutivosEcom.length;
-          leadUpdate.ejecutivo_asignado = ejecutivosEcom[ecomIdx];
+          leadUpdate.nombre = cliente.nombre || '';
+          leadUpdate.empresa = cliente.nombre || '';
+          leadUpdate.rut = rutNorm;
+          leadUpdate.segmento = canalCliente;
+          leadUpdate.canal = canalCliente;
+          leadUpdate.ejecutivo_asignado = ejecutivoUsername || null;
+          leadUpdate.ejecutivo_nombre = ejecutivoNombre || ejecutivoUsername || '';
+          if (cliente.direccion) leadUpdate.direccion = cliente.direccion;
+          if (cliente.ciudad)    leadUpdate.ciudad    = cliente.ciudad;
+          if (cliente.fono)      leadUpdate.fono      = cliente.fono;
+          if (cliente.email)     leadUpdate.email     = cliente.email;
+          if (cliente.ultima_venta) leadUpdate.ultima_compra = cliente.ultima_venta;
         } else {
-          setEstado(phone, {
-            intentos_rut_fallidos: nuevosIntentos,
-            rut_fallido_previo: rutNorm,
-          });
-          // No tocar leadUpdate — no grabar nada del RUT fallido
+          // RUT no encontrado — manejar reintentos
+          const intentosPrevios = estado.intentos_rut_fallidos || 0;
+          const nuevosIntentos = intentosPrevios + 1;
+
+          if (nuevosIntentos >= 2) {
+            setEstado(phone, {
+              etapa: 'activo',
+              canal: 'ecommerce',
+              intentos_rut_fallidos: nuevosIntentos,
+              rut_no_encontrado: true,
+            });
+            leadUpdate.segmento = 'ecommerce';
+            leadUpdate.canal = 'ecommerce';
+            const ejecutivosEcom = ['marcelis.arguelles', 'mauricio.santibanez'];
+            const ecomIdx = Math.floor(Date.now() / 60000) % ejecutivosEcom.length;
+            leadUpdate.ejecutivo_asignado = ejecutivosEcom[ecomIdx];
+          } else {
+            setEstado(phone, {
+              intentos_rut_fallidos: nuevosIntentos,
+              rut_fallido_previo: rutNorm,
+            });
+            // No tocar leadUpdate — no grabar nada del RUT fallido
+          }
         }
       }
     }
