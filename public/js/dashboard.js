@@ -12,25 +12,21 @@ async function renderDashboard(container, prefetched = null, filterState = null)
   const mayConv = seg.conversion?.mayorista || { convertidos: 0, total: 0 };
   const minPct = minConv.total > 0 ? ((minConv.convertidos / minConv.total) * 100).toFixed(1) : '0.0';
   const mayPct = mayConv.total > 0 ? ((mayConv.convertidos / mayConv.total) * 100).toFixed(1) : '0.0';
-  const camp = metrics.rendimiento_campanas || {};
   const segFilter = filterState?.segmento || '';
 
-  container.innerHTML = `
-    <!-- BANNER -->
-    <div class="rounded-2xl mb-6 px-6 py-5 flex items-center justify-between" style="background:linear-gradient(135deg,#0d5c8c 0%,#0a4a73 100%)">
-      <div class="flex items-center gap-4">
-        <div class="w-11 h-11 rounded-xl bg-white/20 flex items-center justify-center text-white font-bold text-xl">C</div>
-        <div>
-          <p class="text-white font-bold text-lg leading-tight">Cruzeiro Gomas</p>
-          <p class="text-white/60 text-xs">FunnelOS · Panel de Control Comercial</p>
-        </div>
-      </div>
-      <div class="text-right">
-        <p id="dash-reloj" class="text-white font-semibold text-base tabular-nums"></p>
-        <p class="text-white/50 text-xs mt-0.5">Santiago, Chile</p>
-      </div>
-    </div>
+  const leadsRes = await api.get('/api/leads?limit=500').catch(() => ({ data: [] }));
+  const todosLeads = leadsRes.data || [];
+  const leadsEcom = todosLeads.filter(l => (l.segmento||'ecommerce') === 'ecommerce');
+  const leadsMay  = todosLeads.filter(l => l.segmento === 'mayorista');
 
+  const convertidosEcom  = metrics.calidad?.ecommerce?.convertido || 0;
+  const convertidosMay   = metrics.calidad?.mayorista?.convertido || 0;
+  const totalConvertidos = convertidosEcom + convertidosMay;
+  const totalLeads       = (minConv.total||0) + (mayConv.total||0);
+  const tasaConvTotal    = totalLeads > 0 ? ((totalConvertidos / totalLeads) * 100).toFixed(1) : '0.0';
+  const mayDerivados     = leadsMay.filter(l => l.etapa_pipeline === 'Contactado').length;
+
+  container.innerHTML = `
     <!-- FILTROS -->
     <div class="bg-white border border-slate-200 rounded-xl px-5 py-4 mb-6 flex flex-wrap gap-3 items-end">
       <div class="flex-1 min-w-[130px]">
@@ -68,7 +64,7 @@ async function renderDashboard(container, prefetched = null, filterState = null)
           </div>
           <svg class="w-4 h-4 text-slate-300 group-hover:text-[#0d5c8c] transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         </div>
-        <p class="text-3xl font-bold text-[#0d5c8c]">${(minConv.total||0)+(mayConv.total||0)}</p>
+        <p class="text-3xl font-bold text-[#0d5c8c]">${totalLeads}</p>
         <p class="text-xs text-slate-500 mt-1 font-medium">Total Leads</p>
       </div>
 
@@ -94,244 +90,105 @@ async function renderDashboard(container, prefetched = null, filterState = null)
         <p class="text-xs text-slate-500 mt-1 font-medium">Mayorista</p>
       </div>
 
-      <div onclick="showKpiDetail('cerrados')" class="bg-white border border-slate-200 rounded-xl p-5 cursor-pointer hover:border-amber-400 hover:shadow-md transition group">
+      <div onclick="showKpiDetail('cerrados')" class="bg-white border border-slate-200 rounded-xl p-5 cursor-pointer hover:border-emerald-400 hover:shadow-md transition group">
         <div class="flex items-center justify-between mb-3">
-          <div class="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center">
-            <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <div class="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
+            <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           </div>
-          <svg class="w-4 h-4 text-slate-300 group-hover:text-amber-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          <svg class="w-4 h-4 text-slate-300 group-hover:text-emerald-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         </div>
-        <p class="text-3xl font-bold text-amber-600">${minPct}%</p>
-        <p class="text-xs text-slate-500 mt-1 font-medium">Conversión</p>
+        <p class="text-3xl font-bold text-emerald-600">${totalConvertidos}</p>
+        <p class="text-xs text-slate-500 mt-1 font-medium">Convertidos &middot; ${tasaConvTotal}% tasa conv.</p>
       </div>
     </div>
 
-    <!-- GRID: ACORDEONES IZQUIERDA + PANEL DERECHO -->
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-5 mb-6">
+    <!-- ACORDEONES -->
+    <div class="space-y-4 mb-6">
 
-      <!-- Acordeones izquierda (3/5) -->
-      <div class="lg:col-span-3 space-y-4">
-        <div id="acc-ecommerce" class="bg-white border border-slate-200 rounded-xl overflow-hidden ${segFilter==='mayorista'?'hidden':''}">
-          <button onclick="toggleAccordion('ecommerce')" class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition">
-            <div class="flex items-center gap-3">
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-              <span class="font-bold text-slate-800">Ecommerce</span>
-              <span class="text-sm text-slate-400">· ${minConv.total} leads · ${minPct}% conv.</span>
-            </div>
-            <svg id="acc-ecommerce-chevron" class="w-5 h-5 text-slate-400" style="transition:transform .2s" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-          </button>
-          <div id="acc-ecommerce-body" class="border-t border-slate-100 px-5 pb-5">
-            <div class="grid grid-cols-3 gap-3 pt-4">
-              ${miniKpiCard('Conversión', minPct+'%', `${minConv.convertidos} de ${minConv.total}`,'cerrados','ecommerce')}
-              ${miniKpiCard('Abandonos', seg.abandonos?.ecommerce??'—','leads','abandonos','ecommerce')}
-              ${miniKpiCard('Derivaciones', seg.derivaciones_humano?.ecommerce??'—','a ejecutivo','derivaciones','ecommerce')}
-            </div>
-            <div class="mt-4 pt-4 border-t border-slate-100">
-              <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Interés del lead</p>
-              ${renderIntencionesRows(metrics.intenciones_ecommerce || {}, 'ecommerce')}
-            </div>
-            <div class="mt-3 pt-3 border-t border-slate-100">
-              <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Calidad del lead</p>
+      <!-- Acordeón ECOMMERCE — abierto por defecto -->
+      <div id="acc-ecommerce" class="bg-white border border-slate-200 rounded-xl overflow-hidden ${segFilter==='mayorista'?'hidden':''}">
+        <button onclick="toggleAccordion('ecommerce')" class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              Ecommerce &middot; ${minConv.total} leads &middot; ${minPct}% conv.
+            </span>
+          </div>
+          <svg id="acc-ecommerce-chevron" class="w-5 h-5 text-slate-400" style="transition:transform .2s" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div id="acc-ecommerce-body" class="border-t border-slate-100 px-5 pb-5">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Calidad del lead</p>
               ${renderCalidadRows(metrics, 'ecommerce')}
             </div>
-          </div>
-        </div>
-
-        <div id="acc-mayorista" class="bg-white border border-slate-200 rounded-xl overflow-hidden ${segFilter==='ecommerce'?'hidden':''}">
-          <button onclick="toggleAccordion('mayorista')" class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition">
-            <div class="flex items-center gap-3">
-              <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-              <span class="font-bold text-slate-800">Mayorista</span>
-              <span class="text-sm text-slate-400">· ${mayConv.total} leads · ${mayPct}% conv.</span>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Qu&eacute; buscan</p>
+              ${renderIntencionesRows(metrics.intenciones_ecommerce || {}, 'ecommerce')}
             </div>
-            <svg id="acc-mayorista-chevron" class="w-5 h-5 text-slate-400" style="transform:rotate(-90deg);transition:transform .2s" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-          </button>
-          <div id="acc-mayorista-body" class="border-t border-slate-100 px-5 pb-5 hidden">
-            <div class="grid grid-cols-3 gap-3 pt-4">
-              ${miniKpiCard('Conversión', mayPct+'%', `${mayConv.convertidos} de ${mayConv.total}`,'cerrados','mayorista')}
-              ${miniKpiCard('Abandonos', seg.abandonos?.mayorista??'—','leads','abandonos','mayorista')}
-              ${miniKpiCard('Derivaciones', seg.derivaciones_humano?.mayorista??'—','a ejecutivo','derivaciones','mayorista')}
-            </div>
-            <div class="mt-4 pt-4 border-t border-slate-100">
-              <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Interés del lead</p>
-              ${renderIntencionesRows(metrics.intenciones_mayorista || {}, 'mayorista')}
-            </div>
-            <div class="mt-3 pt-3 border-t border-slate-100">
-              <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Calidad del lead</p>
-              ${renderCalidadRows(metrics, 'mayorista')}
-            </div>
-          </div>
-        </div>
-
-        <!-- Catálogo -->
-        <div class="bg-white border border-slate-200 rounded-xl p-5">
-          <div class="flex items-center gap-2 mb-4">
-            <svg class="w-4 h-4 text-[#0d5c8c]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
-            <h3 class="font-semibold text-slate-700 text-sm">Catálogo de Productos</h3>
-            <p id="catalogo-actualizado" class="text-xs text-slate-400 ml-auto"></p>
-          </div>
-          <div class="grid grid-cols-3 gap-4 text-center">
-            <div class="border border-slate-100 rounded-xl p-3">
-              <p id="catalogo-total" class="text-2xl font-bold text-[#0d5c8c]">—</p>
-              <p class="text-xs text-slate-400 mt-1">Total SKUs</p>
-            </div>
-            <div class="border border-slate-100 rounded-xl p-3">
-              <p id="catalogo-stock" class="text-2xl font-bold text-emerald-600">—</p>
-              <p class="text-xs text-slate-400 mt-1">Con stock</p>
-            </div>
-            <div class="border border-slate-100 rounded-xl p-3">
-              <p id="catalogo-familias" class="text-2xl font-bold text-amber-600">—</p>
-              <p class="text-xs text-slate-400 mt-1">Familias</p>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Status</p>
+              ${renderStatusRows(leadsEcom, 'ecommerce')}
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Panel derecho (2/5) -->
-      <div class="lg:col-span-2 space-y-4">
-
-        <!-- Campañas HSM -->
-        <div class="bg-white border border-slate-200 rounded-xl p-5">
-          <div class="flex items-center gap-2 mb-4">
-            <svg class="w-4 h-4 text-[#0d5c8c]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
-            <h3 class="font-semibold text-slate-700 text-sm">Campañas HSM</h3>
+      <!-- Acordeón MAYORISTA — cerrado por defecto -->
+      <div id="acc-mayorista" class="bg-white border border-slate-200 rounded-xl overflow-hidden ${segFilter==='ecommerce'?'hidden':''}">
+        <button onclick="toggleAccordion('mayorista')" class="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+              Mayorista &middot; ${mayConv.total} leads &middot; ${mayDerivados} derivados
+            </span>
           </div>
-          <div class="grid grid-cols-2 gap-3">
-            ${campKpi('Enviadas', camp.enviadas||0, '#0d5c8c')}
-            ${campKpi('Entregadas', camp.entregadas||0, '#1a7db5')}
-            ${campKpi('Leídas', camp.leidas||0, '#3299cc')}
-            ${campKpi('Respondidas', camp.respondidas||0, '#50b4e0')}
-          </div>
-        </div>
-
-        <!-- Leads en tiempo real -->
-        <div class="bg-white border border-slate-200 rounded-xl p-5">
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <h3 class="font-semibold text-slate-700 text-sm">Últimos leads</h3>
+          <svg id="acc-mayorista-chevron" class="w-5 h-5 text-slate-400" style="transform:rotate(-90deg);transition:transform .2s" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div id="acc-mayorista-body" class="border-t border-slate-100 px-5 pb-5 hidden">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Calidad del lead</p>
+              ${renderCalidadRows(metrics, 'mayorista')}
             </div>
-            <span class="text-xs text-slate-400">en vivo · 10s</span>
-          </div>
-          <div id="ultimos-leads-list">
-            <p class="text-xs text-slate-400 text-center py-4">Cargando...</p>
-          </div>
-          <button onclick="navigate('leads')" class="mt-4 w-full text-xs text-[#0d5c8c] font-semibold border border-[#0d5c8c]/20 rounded-lg py-2 hover:bg-[#e8f4fd] transition">
-            Ver todos los leads →
-          </button>
-        </div>
-
-        <!-- Leads KPI período -->
-        <div class="bg-white border border-slate-200 rounded-xl p-5">
-          <div class="flex items-center gap-2 mb-4">
-            <h3 class="font-semibold text-slate-700 text-sm">Leads — período</h3>
-            <span id="dash-leads-periodo" class="text-xs text-slate-400 ml-auto"></span>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="text-center border border-slate-100 rounded-xl p-3">
-              <p id="dash-leads-total" class="text-2xl font-bold text-[#0d5c8c]">—</p>
-              <p class="text-xs text-slate-400 mt-1">Total</p>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Motivo de contacto</p>
+              ${renderMotivoRows(leadsMay)}
             </div>
-            <div class="text-center border border-slate-100 rounded-xl p-3">
-              <p id="dash-leads-nuevos" class="text-2xl font-bold text-emerald-600">—</p>
-              <p class="text-xs text-slate-400 mt-1">Nuevos</p>
+            <div class="bg-slate-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Status</p>
+              ${renderStatusRows(leadsMay, 'mayorista')}
             </div>
-            <div class="text-center border border-slate-100 rounded-xl p-3">
-              <p id="dash-leads-cerrados" class="text-2xl font-bold text-indigo-600">—</p>
-              <p class="text-xs text-slate-400 mt-1">Cerrados</p>
-            </div>
-            <div class="text-center border border-slate-100 rounded-xl p-3">
-              <p id="dash-leads-chat-test" class="text-2xl font-bold text-slate-500">—</p>
-              <p class="text-xs text-slate-400 mt-1">Chat test</p>
+          </div>
+          <div class="mt-4 pt-4 border-t border-slate-100">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Ejecutivos hoy</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              ${renderEjecutivosCards(leadsMay)}
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- GRÁFICOS -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      <div class="bg-white border border-slate-200 rounded-xl p-5">
-        <h3 class="font-semibold text-slate-700 text-sm mb-4">Volumen de conversaciones (30 días)</h3>
-        <canvas id="chart-volumen" height="180"></canvas>
+    <!-- ÚLTIMOS LEADS -->
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <h3 class="font-semibold text-slate-700 text-sm">Últimos leads</h3>
+        </div>
+        <span class="text-xs text-slate-400">en vivo &middot; 10s</span>
       </div>
-      <div class="bg-white border border-slate-200 rounded-xl p-5">
-        <h3 class="font-semibold text-slate-700 text-sm mb-4">Tasa de conversión diaria</h3>
-        <canvas id="chart-conversion" height="180"></canvas>
+      <div id="ultimos-leads-list">
+        <p class="text-xs text-slate-400 text-center py-4">Cargando...</p>
       </div>
+      <button onclick="navigate('leads')" class="mt-4 w-full text-xs text-[#0d5c8c] font-semibold border border-[#0d5c8c]/20 rounded-lg py-2 hover:bg-[#e8f4fd] transition">
+        Ver todos los leads →
+      </button>
     </div>
   `;
 
-  const dias = trends.trends || [];
-  const labels = dias.map(d => d.fecha ? d.fecha.slice(5) : '');
-
-  App.charts.volumen = new Chart(document.getElementById('chart-volumen'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Conversaciones',
-        data: dias.map(d => d.volumen_conversaciones || 0),
-        borderColor: '#0d5c8c',
-        backgroundColor: 'rgba(13,92,140,0.08)',
-        tension: 0.4,
-        fill: true,
-        pointRadius: 3,
-        pointBackgroundColor: '#0d5c8c',
-      }],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
-        x: { grid: { display: false } },
-      },
-    },
-  });
-
-  App.charts.conversion = new Chart(document.getElementById('chart-conversion'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Conversión %',
-        data: dias.map(d => d.tasa_conversion || 0),
-        backgroundColor: 'rgba(13,92,140,0.7)',
-        borderRadius: 4,
-      }],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: true, max: 100, grid: { color: '#f1f5f9' } },
-        x: { grid: { display: false } },
-      },
-    },
-  });
-
   refreshLeadsKPIs('', '');
-
-  api.get('/api/catalogo').then(data => {
-    const r = data.resumen || {};
-    const el = id => document.getElementById(id);
-    if (el('catalogo-total')) el('catalogo-total').textContent = (r.total ?? '—').toLocaleString('es-CL');
-    if (el('catalogo-stock')) el('catalogo-stock').textContent = (r.con_stock ?? '—').toLocaleString('es-CL');
-    if (el('catalogo-familias')) el('catalogo-familias').textContent = (r.familias ?? '—').toLocaleString('es-CL');
-    if (el('catalogo-actualizado') && r.actualizado_en) {
-      el('catalogo-actualizado').textContent = 'Actualizado: ' + new Date(r.actualizado_en).toLocaleDateString('es-CL');
-    }
-  }).catch(() => {});
-
-  // Reloj
-  function _tickReloj() {
-    const el = document.getElementById('dash-reloj');
-    if (el) el.textContent = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
-  _tickReloj();
-  if (window._relojInt) clearInterval(window._relojInt);
-  window._relojInt = setInterval(_tickReloj, 1000);
   setTimeout(refreshUltimosLeads, 150);
 }
 
@@ -445,19 +302,38 @@ async function refreshUltimosLeads() {
   if (!c) return;
   try {
     const res = await api.get('/api/leads?limit=20');
-    const leads = (res.data||[]).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
+    const leads = (res.data||[]).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).slice(0,8);
     if (!leads.length) { c.innerHTML='<p class="text-xs text-slate-400 text-center py-4">Sin leads aún</p>'; return; }
-    c.innerHTML = leads.map(l=>`
-      <div onclick="document.getElementById('kpi-detail-panel')?.remove();navigate('leads');setTimeout(()=>verLead('${l.id}'),400);"
-        class="flex items-center justify-between py-2.5 border-b border-slate-100 last:border-0 cursor-pointer hover:bg-slate-50 px-1 rounded-lg transition">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-800 truncate">${escHtml(l.nombre||'—')}</p>
-          <p class="text-xs text-slate-400">${new Date(l.createdAt).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'})}</p>
-        </div>
-        <span class="text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ml-2 ${l.segmento==='mayorista'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'}">
-          ${l.segmento==='mayorista'?'Mayorista':'Ecommerce'}
-        </span>
-      </div>`).join('');
+    const _calidadChip = {
+      bajo:       'bg-slate-100 text-slate-600',
+      medio:      'bg-amber-100 text-amber-700',
+      alto:       'bg-blue-100 text-blue-700',
+      convertido: 'bg-green-100 text-green-700',
+    };
+    c.innerHTML = leads.map(l => {
+      const calidad = l.calidad_lead || 'bajo';
+      const calidadClass = _calidadChip[calidad] || _calidadChip.bajo;
+      const calidadLabel = calidad.charAt(0).toUpperCase() + calidad.slice(1);
+      const motivo = l.familia_interes || l.intencion_principal || '';
+      const motivoLabel = _INTENCION_LABELS[motivo] || motivo;
+      const tiempo = new Date(l.createdAt).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+      return `
+        <div onclick="document.getElementById('kpi-detail-panel')?.remove();navigate('leads');setTimeout(()=>verLead('${l.id}'),400);"
+          class="flex items-start justify-between py-3 border-b border-slate-100 last:border-0 cursor-pointer hover:bg-slate-50 px-1 rounded-lg transition gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <p class="text-sm font-medium text-slate-800 truncate">${escHtml(l.nombre||'—')}</p>
+              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${l.segmento==='mayorista'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'}">${l.segmento==='mayorista'?'May':'Eco'}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${calidadClass}">${calidadLabel}</span>
+            </div>
+            <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+              ${estadoBadge(l.estado)}
+              ${motivoLabel ? `<span class="text-xs text-slate-400">${escHtml(motivoLabel)}</span>` : ''}
+            </div>
+          </div>
+          <span class="text-xs text-slate-400 shrink-0 mt-0.5">${tiempo}</span>
+        </div>`;
+    }).join('');
   } catch(_) {}
 }
 
@@ -521,6 +397,121 @@ function renderCalidadRows(metrics, segmento) {
             <div class="h-full ${r.bar} rounded-full transition-all" style="width:${pct}%"></div>
           </div>
         </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Status del lead ──────────────────────────────────────────────────────────
+
+function renderStatusRows(leads, segmento) {
+  const rowsEcom = [
+    { key: 'Nuevo',           label: 'Nuevo',           chipClass: 'bg-slate-100 text-slate-600',  chip: 'Sin interacción' },
+    { key: 'en_conversacion', label: 'En conversación', chipClass: 'bg-blue-50 text-blue-600',     chip: 'Activo' },
+    { key: 'esperando',       label: 'Esperando',       chipClass: 'bg-amber-50 text-amber-600',   chip: 'En espera' },
+    { key: 'link_enviado',    label: 'Link enviado',    chipClass: 'bg-green-50 text-green-700',   chip: 'Listo' },
+    { key: 'Derivado',        label: 'Derivado',        chipClass: 'bg-indigo-50 text-indigo-700', chip: 'Derivado' },
+  ];
+  const rowsMay = [
+    { key: 'Nuevo',        label: 'Nuevo',        chipClass: 'bg-slate-100 text-slate-600',  chip: 'Sin RUT' },
+    { key: 'identificado', label: 'Identificado', chipClass: 'bg-amber-50 text-amber-600',   chip: 'Con RUT' },
+    { key: 'notificado',   label: 'Notificado',   chipClass: 'bg-blue-50 text-blue-600',     chip: 'Alerta enviada' },
+    { key: 'en_gestion',   label: 'En gestión',   chipClass: 'bg-green-50 text-green-700',   chip: 'Contactado' },
+    { key: 'Cerrado',      label: 'Cerrado',      chipClass: 'bg-slate-100 text-slate-500',  chip: 'Resuelto' },
+  ];
+  const rows = segmento === 'mayorista' ? rowsMay : rowsEcom;
+  const counts = {};
+  for (const l of leads) {
+    const k = l.estado || 'Nuevo';
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  const max = Math.max(...rows.map(r => counts[r.key] || 0), 1);
+  return rows.map(r => {
+    const n = counts[r.key] || 0;
+    const pct = Math.round((n / max) * 100);
+    return `
+      <div onclick="showSegmentDetail('${segmento}','estado','${r.key}')"
+        class="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-white transition">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs font-medium text-slate-700">${r.label}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium ${r.chipClass}">${r.chip}</span>
+              <span class="text-xs font-bold text-slate-700">${n}</span>
+            </div>
+          </div>
+          <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+            <div class="h-full bg-slate-400 rounded-full transition-all" style="width:${pct}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Motivo de contacto mayorista ─────────────────────────────────────────────
+
+function renderMotivoRows(leadsMay) {
+  const motivos = [
+    { key: 'producto',        label: 'Venta nueva',        dotClass: 'bg-teal-400',   barClass: 'bg-teal-400' },
+    { key: 'consulta_pedido', label: 'Estado pedido',      dotClass: 'bg-purple-400', barClass: 'bg-purple-400' },
+    { key: 'precio',          label: 'Cotización',         dotClass: 'bg-amber-400',  barClass: 'bg-amber-400' },
+    { key: 'escalar',         label: 'Reclamo / urgencia', dotClass: 'bg-red-400',    barClass: 'bg-red-400' },
+    { key: 'sin_clasificar',  label: 'Sin clasificar',     dotClass: 'bg-slate-400',  barClass: 'bg-slate-400' },
+  ];
+  const counts = {};
+  for (const l of leadsMay) {
+    const k = l.intencion_principal || 'sin_clasificar';
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  const max = Math.max(...motivos.map(m => counts[m.key] || 0), 1);
+  return motivos.map(m => {
+    const n = counts[m.key] || 0;
+    const pct = Math.round((n / max) * 100);
+    return `
+      <div onclick="showSegmentDetail('mayorista','intencion_principal','${m.key}')"
+        class="flex items-center gap-3 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-white transition">
+        <span class="w-2.5 h-2.5 rounded-full ${m.dotClass} shrink-0"></span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-700">${m.label}</span>
+            <span class="text-xs font-bold text-slate-700 ml-2">${n}</span>
+          </div>
+          <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+            <div class="h-full ${m.barClass} rounded-full" style="width:${pct}%"></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ─── Tarjetas de ejecutivos ───────────────────────────────────────────────────
+
+function renderEjecutivosCards(leadsMay) {
+  const ejecutivos = [
+    { username: 'nicolas.pacheco', nombre: 'N. Pacheco', iniciales: 'NP' },
+    { username: 'irma.jara',       nombre: 'I. Jara',    iniciales: 'IJ' },
+    { username: 'cynthia.romo',    nombre: 'C. Romo',    iniciales: 'CR' },
+    { username: 'marcos.diamond',  nombre: 'M. Diamond', iniciales: 'MD' },
+  ];
+  return ejecutivos.map(ej => {
+    const leadsEj = leadsMay.filter(l => l.ejecutivo_asignado === ej.username);
+    const tieneContactado = leadsEj.some(l => l.etapa_pipeline === 'Contactado');
+    const chipClass = leadsEj.length === 0
+      ? 'bg-slate-100 text-slate-500'
+      : tieneContactado
+        ? 'bg-green-100 text-green-700'
+        : 'bg-amber-100 text-amber-700';
+    const chipLabel = leadsEj.length === 0
+      ? 'Sin actividad'
+      : tieneContactado
+        ? 'Notificado'
+        : 'Pendiente';
+    return `
+      <div onclick="showSegmentDetail('mayorista','ejecutivo_asignado','${ej.username}')"
+        class="bg-white border border-slate-200 rounded-xl p-3 cursor-pointer hover:border-indigo-300 hover:shadow-sm transition flex flex-col items-center gap-2 text-center">
+        <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm">${ej.iniciales}</div>
+        <p class="text-xs font-semibold text-slate-700">${ej.nombre}</p>
+        <p class="text-lg font-bold text-slate-800">${leadsEj.length}</p>
+        <span class="text-xs px-2 py-0.5 rounded-full font-medium ${chipClass}">${chipLabel}</span>
       </div>`;
   }).join('');
 }
