@@ -111,7 +111,11 @@ function buscar(query, canal = 'ecommerce') {
 
     return { p, score };
   })
-  .filter(x => x.score > 0)
+  .filter(x => {
+    if (x.score === 0) return false;
+    if (x.p.saldo_ftp !== null && x.p.saldo_ftp !== undefined && x.p.saldo_ftp <= 0) return false;
+    return true;
+  })
   .sort((a, b) => b.score - a.score || (b.p.tiene_stock ? 1 : 0) - (a.p.tiene_stock ? 1 : 0));
 
   if (!scored.length && subcatsFromSinonimos.size > 0) {
@@ -148,7 +152,10 @@ function buscarPorSubcategorias(subcategorias, canal = 'ecommerce') {
   const catalogo = datos.getTodosCatalogo();
   const subcatsNorm = subcategorias.map(s => s.toLowerCase().trim());
   return catalogo
-    .filter(p => subcatsNorm.includes((p.subcategoria || '').toLowerCase().trim()))
+    .filter(p =>
+      subcatsNorm.includes((p.subcategoria || '').toLowerCase().trim()) &&
+      (p.saldo_ftp === null || p.saldo_ftp === undefined || p.saldo_ftp > 0)
+    )
     .sort((a, b) => {
       if (b.tiene_stock !== a.tiene_stock) return b.tiene_stock ? 1 : -1;
       return (a.precio || 0) - (b.precio || 0);
@@ -247,7 +254,9 @@ function agruparVariantes(productos) {
         const base = p.sku.split('-')[0];
         const esMetro = (p.unidad === 'MT' || p.unidad === 'mt' || p.unidad === 'ML');
         const precioValido = p.precio && p.precio > 1;
-        const stockOk = p.stock === null || p.stock > 0;
+        const stockFtpOk = (p.saldo_ftp === null || p.saldo_ftp === undefined || p.saldo_ftp > 0);
+        const stockMaestraOk = p.stock === null || p.stock > 0;
+        const stockOk = stockFtpOk && stockMaestraOk;
         return base === grupo.skuBase && esMetro && precioValido && stockOk && !p.sku.includes('-');
       });
 
