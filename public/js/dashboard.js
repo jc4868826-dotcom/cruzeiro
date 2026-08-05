@@ -403,25 +403,39 @@ function renderCalidadRows(metrics, segmento) {
 
 // ─── Status del lead ──────────────────────────────────────────────────────────
 
+function _derivarStatusEcommerce(lead) {
+  if (lead.calidad_lead === 'convertido') return 'convertido';
+  if (lead.etapa_pipeline === 'Contactado' || lead.ejecutivo_asignado) return 'derivado';
+  const msgs = lead.mensajes_count || (lead.conversacion?.mensajes || []).length || 0;
+  if (msgs > 2) return 'en_conversacion';
+  return 'nuevo';
+}
+
+function _derivarStatusMayorista(lead) {
+  if (lead.etapa_pipeline === 'Cerrado') return 'cerrado';
+  if (lead.etapa_pipeline === 'Contactado') return 'en_gestion';
+  if (lead.ejecutivo_asignado) return 'notificado';
+  return 'identificado';
+}
+
 function renderStatusRows(leads, segmento) {
   const rowsEcom = [
-    { key: 'Nuevo',           label: 'Nuevo',           chipClass: 'bg-slate-100 text-slate-600',  chip: 'Sin interacción' },
-    { key: 'en_conversacion', label: 'En conversación', chipClass: 'bg-blue-50 text-blue-600',     chip: 'Activo' },
-    { key: 'esperando',       label: 'Esperando',       chipClass: 'bg-amber-50 text-amber-600',   chip: 'En espera' },
-    { key: 'link_enviado',    label: 'Link enviado',    chipClass: 'bg-green-50 text-green-700',   chip: 'Listo' },
-    { key: 'Derivado',        label: 'Derivado',        chipClass: 'bg-indigo-50 text-indigo-700', chip: 'Derivado' },
+    { key: 'nuevo',          label: 'Nuevo',           chipCss: 'bg-slate-100 text-slate-600',  chip: 'Sin interacción' },
+    { key: 'en_conversacion',label: 'En conversación', chipCss: 'bg-blue-50 text-blue-600',     chip: 'Activo' },
+    { key: 'derivado',       label: 'Derivado',        chipCss: 'bg-indigo-50 text-indigo-700', chip: 'Con ejecutivo' },
+    { key: 'convertido',     label: 'Convertido',      chipCss: 'bg-green-50 text-green-700',   chip: 'Link enviado' },
   ];
   const rowsMay = [
-    { key: 'Nuevo',        label: 'Nuevo',        chipClass: 'bg-slate-100 text-slate-600',  chip: 'Sin RUT' },
-    { key: 'identificado', label: 'Identificado', chipClass: 'bg-amber-50 text-amber-600',   chip: 'Con RUT' },
-    { key: 'notificado',   label: 'Notificado',   chipClass: 'bg-blue-50 text-blue-600',     chip: 'Alerta enviada' },
-    { key: 'en_gestion',   label: 'En gestión',   chipClass: 'bg-green-50 text-green-700',   chip: 'Contactado' },
-    { key: 'Cerrado',      label: 'Cerrado',      chipClass: 'bg-slate-100 text-slate-500',  chip: 'Resuelto' },
+    { key: 'identificado', label: 'Identificado', chipCss: 'bg-amber-50 text-amber-600',   chip: 'RUT + ejecutivo' },
+    { key: 'notificado',   label: 'Notificado',   chipCss: 'bg-blue-50 text-blue-600',     chip: 'Alerta enviada' },
+    { key: 'en_gestion',   label: 'En gestión',   chipCss: 'bg-green-50 text-green-700',   chip: 'Contactado' },
+    { key: 'cerrado',      label: 'Cerrado',      chipCss: 'bg-slate-100 text-slate-500',  chip: 'Resuelto' },
   ];
   const rows = segmento === 'mayorista' ? rowsMay : rowsEcom;
+  const deriver = segmento === 'mayorista' ? _derivarStatusMayorista : _derivarStatusEcommerce;
   const counts = {};
   for (const l of leads) {
-    const k = l.estado || 'Nuevo';
+    const k = deriver(l);
     counts[k] = (counts[k] || 0) + 1;
   }
   const max = Math.max(...rows.map(r => counts[r.key] || 0), 1);
@@ -429,13 +443,13 @@ function renderStatusRows(leads, segmento) {
     const n = counts[r.key] || 0;
     const pct = Math.round((n / max) * 100);
     return `
-      <div onclick="showSegmentDetail('${segmento}','estado','${r.key}')"
+      <div onclick="showSegmentDetail('${segmento}','calidad_lead','${r.key}')"
         class="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-white transition">
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between mb-1">
             <span class="text-xs font-medium text-slate-700">${r.label}</span>
             <div class="flex items-center gap-1.5">
-              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium ${r.chipClass}">${r.chip}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium ${r.chipCss}">${r.chip}</span>
               <span class="text-xs font-bold text-slate-700">${n}</span>
             </div>
           </div>
@@ -494,17 +508,23 @@ function renderEjecutivosCards(leadsMay) {
   ];
   return ejecutivos.map(ej => {
     const leadsEj = leadsMay.filter(l => l.ejecutivo_asignado === ej.username);
-    const tieneContactado = leadsEj.some(l => l.etapa_pipeline === 'Contactado');
+    const statuses = leadsEj.map(_derivarStatusMayorista);
+    const tieneEnGestion  = statuses.includes('en_gestion');
+    const tieneNotificado = statuses.includes('notificado');
     const chipClass = leadsEj.length === 0
       ? 'bg-slate-100 text-slate-500'
-      : tieneContactado
+      : tieneEnGestion
         ? 'bg-green-100 text-green-700'
-        : 'bg-amber-100 text-amber-700';
+        : tieneNotificado
+          ? 'bg-blue-100 text-blue-700'
+          : 'bg-amber-100 text-amber-700';
     const chipLabel = leadsEj.length === 0
       ? 'Sin actividad'
-      : tieneContactado
-        ? 'Notificado'
-        : 'Pendiente';
+      : tieneEnGestion
+        ? 'En gestión'
+        : tieneNotificado
+          ? 'Notificado'
+          : 'Identificado';
     return `
       <div onclick="showSegmentDetail('mayorista','ejecutivo_asignado','${ej.username}')"
         class="bg-white border border-slate-200 rounded-xl p-3 cursor-pointer hover:border-indigo-300 hover:shadow-sm transition flex flex-col items-center gap-2 text-center">
