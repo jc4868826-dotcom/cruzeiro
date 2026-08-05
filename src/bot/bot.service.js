@@ -203,7 +203,7 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
   const recienIdentificado = contextoCliente?.rut && mensajesPrevios > 2;
 
   let clienteSeccion = '';
-  if (contextoCliente?.rut) {
+  if (contextoCliente?.rut && !contextoCliente.esEcommerce) {
     const ejNombreCtx = contextoCliente.ejecutivoNombre || 'nuestro equipo de ventas';
     const ejContacto  = [
       contextoCliente.ejecutivoFono  ? `Tel: ${contextoCliente.ejecutivoFono}`   : null,
@@ -214,6 +214,9 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
           `NV ${p.nv} | ${p.estado} | Entrega: ${p.fecha_entrega || 'sin fecha'} | OC: ${p.orden_compra || '-'} | Despacho: ${p.tipo_transporte || '-'} | Dirección: ${p.direccion || '-'}, ${p.comuna || '-'}`
         ).join('\n')
       : 'Sin pedidos activos.';
+    const cotizacionesTexto = Array.isArray(contextoCliente.cotizaciones) && contextoCliente.cotizaciones.length > 0
+      ? contextoCliente.cotizaciones.join('\n')
+      : null;
     clienteSeccion = `
 === CLIENTE MAYORISTA IDENTIFICADO ===
 Empresa: ${contextoCliente.empresa}
@@ -221,9 +224,23 @@ RUT: ${contextoCliente.rut}
 Ejecutivo asignado: ${ejNombreCtx}
 ${ejContacto ? `Contacto ejecutivo: ${ejContacto}` : ''}
 Pedidos activos: ${pedidosTexto}
+${cotizacionesTexto ? `\nCotizaciones anteriores del cliente:\n${cotizacionesTexto}\nINSTRUCCIÓN: Si el cliente pregunta por precio distinto al actual, muestra el precio cotizado y el precio actual y explica la diferencia. Si pregunta qué le cotizaron, muestra el SKU y descripción.` : ''}
 ${recienIdentificado ? '\nATENCIÓN: El cliente se identificó en medio de la conversación. Lee el historial completo y retoma exactamente desde donde estaban. NO repitas preguntas ya hechas.' : ''}
 ======================================
 `;
+  } else if (contextoCliente?.esEcommerce) {
+    const seccionesCte = [];
+    if (Array.isArray(contextoCliente.pedidos) && contextoCliente.pedidos.length > 0) {
+      const pedidosTextoE = contextoCliente.pedidos.slice(0, 6).map(p =>
+        `NV ${p.nv} | ${p.estado} | Entrega: ${p.fecha_entrega || 'sin fecha'} | OC: ${p.orden_compra || '-'} | Despacho: ${p.tipo_transporte || '-'} | Dirección: ${p.direccion || '-'}, ${p.comuna || '-'}`
+      ).join('\n');
+      seccionesCte.push(`=== PEDIDOS DEL CLIENTE ===\n${pedidosTextoE}\n===========================`);
+    }
+    if (Array.isArray(contextoCliente.cotizaciones) && contextoCliente.cotizaciones.length > 0) {
+      const cotizacionesTextoE = contextoCliente.cotizaciones.join('\n');
+      seccionesCte.push(`=== COTIZACIONES DEL CLIENTE ===\n${cotizacionesTextoE}\nINSTRUCCIÓN: Si el cliente pregunta por precio distinto al actual, muestra el precio cotizado y el precio actual y explica la diferencia. Si pregunta qué le cotizaron, muestra el SKU y descripción.\n================================`);
+    }
+    if (seccionesCte.length > 0) clienteSeccion = seccionesCte.join('\n\n') + '\n';
   }
 
   return `${clienteSeccion}
@@ -302,6 +319,7 @@ REGLAS ABSOLUTAS — LEE ANTES DE CADA RESPUESTA
 - La cantidad en m² que el cliente dio aplica para TODO lo que venga después: piso, adhesivo, complementos. No la pidas de nuevo.
 - Si un precio en el catálogo aparece como 0 o vacío, NO lo muestres ni ofrezcas ese producto
 - Responde siempre en español chileno natural
+- NUNCA menciones cantidades de stock al cliente ("tenemos 15 MT", "quedan 3 unidades", etc.). El stock es solo para tu uso interno para saber si puedes ofrecer el producto. Si el cliente pregunta por disponibilidad, di que está disponible o consulta con el ejecutivo — nunca el número exacto.
 
 ═══════════════════════════════════
 CÁLCULOS DE CANTIDAD — OBLIGATORIO
@@ -540,7 +558,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
-  // ── PASO 3: Construir contextoCliente si hay rut y canal mayorista ────────
+  // ── PASO 3: Construir contextoCliente ─────────────────────────────────────
+  const mencionaCotizacion = /cotiz|me cotiz|cotización|lo que me cotiz|precio que me dier|me dieron precio|cuánto me cotiz/i.test(texto);
+  const mencionaPedido = /pedido|mi pedido|nota de venta|NV\s*\d|cuando llega|despacho|entrega|tracking/i.test(texto);
   let contextoCliente = null;
   if (estadoActual.rut && estadoActual.canal === 'mayorista') {
     const usuarioEj = estadoActual.ejecutivoAsignado
@@ -554,6 +574,53 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       ejecutivoEmail:  usuarioEj?.email  || null,
       pedidos:         datos.buscarPedidosPorRut(estadoActual.rut),
     };
+    if (mencionaCotizacion) {
+      contextoCliente.cotizaciones = datos.buscarCotizacionesPorRut(estadoActual.rut)
+        .slice(0, 5)
+        .map(c => `Fecha: ${c.fecha} | SKU: ${c.codigo} | Producto: ${c.descripcion} | Precio cotizado: $${Number(c.precioCotizado).toLocaleString('es-CL')} | Estado: ${c.estado}`);
+    }
+  } else if (estadoActual.rut && (mencionaPedido || mencionaCotizacion)) {
+    contextoCliente = { rut: estadoActual.rut, esEcommerce: true };
+    if (mencionaPedido) contextoCliente.pedidos = datos.buscarPedidosPorRut(estadoActual.rut);
+    if (mencionaCotizacion) {
+      contextoCliente.cotizaciones = datos.buscarCotizacionesPorRut(estadoActual.rut)
+        .slice(0, 5)
+        .map(c => `Fecha: ${c.fecha} | SKU: ${c.codigo} | Producto: ${c.descripcion} | Precio cotizado: $${Number(c.precioCotizado).toLocaleString('es-CL')} | Estado: ${c.estado}`);
+    }
+  }
+
+  // ── MODO SILENCIOSO MAYORISTA ─────────────────────────────────────────────
+  if (estadoActual.rut && estadoActual.canal === 'mayorista' && contextoCliente) {
+    const ejNombre = contextoCliente.ejecutivoNombre || 'nuestro ejecutivo de ventas';
+    const ejFono   = contextoCliente.ejecutivoFono   || null;
+    const empresa  = contextoCliente.empresa || estadoActual.clienteNombre || 'Cliente';
+
+    let respuestaMayorista;
+    if (!estadoActual.alertaMayoristaEnviada) {
+      await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, historialConv);
+      setEstado(phone, { alertaMayoristaEnviada: true });
+      leadUpdate.etapa_pipeline = 'Contactado';
+      leadUpdate.ejecutivo_asignado = estadoActual.ejecutivoAsignado;
+      respuestaMayorista = `Hola, ${empresa}. Tu ejecutivo ${ejNombre} ya fue notificado y te contactará a la brevedad.${ejFono ? ` Si necesitas algo urgente puedes escribirle directamente al ${ejFono}.` : ''}`;
+    } else {
+      respuestaMayorista = `Tu ejecutivo ${ejNombre} ya fue notificado. Quedamos atentos.`;
+    }
+
+    const conversacionM = await _guardarMensajes(phone, texto, respuestaMayorista, conversacionExistente, canal_tipo);
+    try {
+      const todosLeadsM = await db.getAll('leads');
+      const leadExistenteM = todosLeadsM.find(l => l.rut === estadoActual.rut) || null;
+      const leadIdM = leadExistenteM?.id || conversacionM?.lead_id;
+      if (leadIdM && Object.keys(leadUpdate).length > 0) {
+        await db.update('leads', leadIdM, leadUpdate);
+      }
+      if (conversacionM?.id && !conversacionM.lead_id && leadIdM) {
+        await db.update('conversaciones', conversacionM.id, { lead_id: leadIdM });
+      }
+    } catch (e) {
+      console.error('[bot] Error grabando lead mayorista:', e.message);
+    }
+    return { respuesta: respuestaMayorista, derivar: false, conversacion: conversacionM, leadUpdate, estado: getEstado(phone) };
   }
 
   // ── PASO 4: Detección silenciosa de afirmación de contacto ───────────────
@@ -595,11 +662,11 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────
   let identificacionHint = '';
   if (estadoActual.rut_no_encontrado) {
-    // RUT no encontrado tras 2 intentos — tratar como ecommerce, no volver a pedir RUT
     identificacionHint = '';
   } else if (estadoActual.intentos_rut_fallidos === 1) {
-    // Primer intento fallido — esperar sin presionar
     identificacionHint = '';
+  } else if (mencionaCotizacion && !estadoActual.rut) {
+    identificacionHint = 'El cliente pregunta por una cotización anterior. Pídele el RUT para buscarla en el sistema.';
   } else if (!estadoActual.rut && historialConv.length < 4) {
     identificacionHint = 'En el próximo intercambio, si no lo has hecho, pregunta naturalmente si el cliente ha comprado antes con nosotros.';
   } else if (!estadoActual.rut && historialConv.length >= 4) {
@@ -663,12 +730,21 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       if (
         respuesta.includes('cruzeirogomas.cl/carrito') ||
         leadUpdate.etapa_pipeline === 'Contactado' ||
-        /quiero comprar|confirmo|procedo|lo compro|págalo|pagar ahora/i.test(texto)
+        /quiero comprar|confirmo|procedo|lo compro|págalo|pagar ahora/i.test(texto) ||
+        /cotización formal|quiero cotizar|me mandan cotización|necesito cotización formal/i.test(texto)
       ) {
         _calidadCalc = 'convertido';
-      } else if (/precio|medida|medidas|dimensi|cuánto|cuanto|link|sku|código|especific|ficha técnica|largo|ancho|espesor|milímetro|mm\b/i.test(texto)) {
+      } else if (
+        /precio|medida|medidas|dimensi|cuánto|cuanto|link|sku|código|especific|ficha técnica|largo|ancho|espesor|milímetro|mm\b|cantidad|cuántas|cuántos|despacho|envío|forma de pago|transferencia|webpay|khipu/i.test(texto) ||
+        (estadoActual.rut && estadoActual.canal === 'ecommerce')
+      ) {
         _calidadCalc = 'alto';
-      } else if (historialConv.filter(m => m.rol === 'cliente').length > 2) {
+      } else if (
+        (Array.isArray(productosCtx) && productosCtx.length > 0) ||
+        /\b(piso|goma|caucho|pastel[oó]n|grada|escalera|alfombra|rollo|perfil|cinta|tacha|oring|o-ring|epdm|pvc|adhesivo|plancha|baldosa|nomad|seguridad vial|protector|señalética)\b/i.test(texto) ||
+        (_intencionDet.tipo !== 'saludo' && _intencionDet.tipo !== 'despedida' &&
+         _intencionDet.tipo !== 'desconocido' && historialConv.filter(m => m.rol === 'cliente').length > 1)
+      ) {
         _calidadCalc = 'medio';
       }
     }
