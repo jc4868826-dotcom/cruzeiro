@@ -144,6 +144,17 @@ function renderLeadsList(leads) {
 
   const colorAvatar = seg => seg === 'mayorista' ? '#0d5c8c' : '#25a244';
 
+  const calidadCfg = {
+    convertido: { label: 'Convertido', css: 'bg-green-100 text-green-700' },
+    alto:       { label: 'Alto',       css: 'bg-blue-100 text-blue-700' },
+    medio:      { label: 'Medio',      css: 'bg-amber-100 text-amber-700' },
+    bajo:       { label: 'Bajo',       css: 'bg-slate-100 text-slate-500' },
+  };
+  const _MOTIVO_LABELS = {
+    producto: 'Producto', precio: 'Precio', consulta_pedido: 'Pedido',
+    pago: 'Pago', mayorista: 'Mayorista', info_general: 'Info', consulta_catalogo: 'Catálogo',
+  };
+
   container.innerHTML = leads.map(l => {
     const inicial = (l.nombre || l.telefono || '?').charAt(0).toUpperCase();
     const avatarBg = colorAvatar(l.segmento);
@@ -151,12 +162,27 @@ function renderLeadsList(leads) {
       ? new Date(l.updatedAt || l.createdAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
       : '';
     const isActive = _currentLeadId === l.id;
+
+    const calidad = calidadCfg[l.calidad_lead] || calidadCfg['bajo'];
+
+    const conv = (l.conversaciones || [])[0];
+    const msgs = (conv?.mensajes || []).filter(m => m.rol === 'cliente').length;
+    const msgBadge = msgs > 0
+      ? `<span class="ml-1 shrink-0 min-w-[18px] h-[18px] rounded-full bg-[#0d5c8c] text-white text-[10px] font-bold flex items-center justify-center px-1">${msgs}</span>`
+      : '';
+
+    const segPill = l.segmento === 'mayorista'
+      ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Mayorista</span>`
+      : `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Ecommerce</span>`;
+
+    const motivoTxt = _MOTIVO_LABELS[l.intencion_principal] || '';
+
     return `
     <div class="flex items-center gap-3 px-3 py-3 cursor-pointer lead-card border-b border-slate-100 hover:bg-slate-50 transition ${isActive ? 'bg-[#e8f4fd]' : ''}"
       data-lead-id="${l.id}"
       onclick="verLead('${l.id}')">
       <!-- Avatar -->
-      <div class="w-12 h-12 rounded-full shrink-0 flex items-center justify-center text-white text-base font-semibold"
+      <div class="w-11 h-11 rounded-full shrink-0 flex items-center justify-center text-white text-base font-semibold"
         style="background:${avatarBg};">
         ${inicial}
       </div>
@@ -164,11 +190,15 @@ function renderLeadsList(leads) {
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-1">
           <p class="text-sm font-semibold text-slate-800 truncate">${escHtml(l.nombre || l.telefono)}</p>
-          <span class="text-xs text-slate-400 shrink-0">${hora}</span>
+          <div class="flex items-center gap-1 shrink-0">
+            <span class="text-xs text-slate-400">${hora}</span>
+            ${msgBadge}
+          </div>
         </div>
-        <div class="flex items-center justify-between gap-1 mt-0.5">
-          <p class="text-xs text-slate-500 truncate">${escHtml(l.telefono)}</p>
-          ${estadoBadge(l.estado)}
+        <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          ${segPill}
+          <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full ${calidad.css}">${calidad.label}</span>
+          ${motivoTxt ? `<span class="text-[10px] text-slate-400 truncate">${escHtml(motivoTxt)}</span>` : ''}
         </div>
       </div>
     </div>`;
