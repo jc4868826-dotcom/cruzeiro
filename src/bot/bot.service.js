@@ -19,6 +19,7 @@ function getEstado(phone) {
     clienteNombre: null,
     subcategoriasActivas: null,
     intentos_rut_fallidos: 0,
+    skusConfirmados: [],
   };
 }
 
@@ -679,6 +680,40 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── PASO 8: Llamar a OpenAI ───────────────────────────────────────────────
   let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx)
     || `Estoy aquí para ayudarte. ¿En qué puedo orientarte?`;
+
+  // ── Capturar SKUs mencionados en la respuesta del bot ──────────────────
+  const _skuRegex = /\bSKU[:\s]+([A-Z0-9][-A-Z0-9]{4,})/gi;
+  const _skusEnRespuesta = [];
+  let _skuMatch;
+  while ((_skuMatch = _skuRegex.exec(respuesta)) !== null) {
+    _skusEnRespuesta.push(_skuMatch[1].trim());
+  }
+  if (_skusEnRespuesta.length > 0) {
+    const _estadoSkus = getEstado(phone);
+    const _skusActuales = _estadoSkus.skusConfirmados || [];
+    const _skusSet = new Map(_skusActuales.map(s => [s.sku, s]));
+    for (const sku of _skusEnRespuesta) {
+      if (!_skusSet.has(sku)) _skusSet.set(sku, { sku, cantidad: 1 });
+    }
+    setEstado(phone, { skusConfirmados: [..._skusSet.values()] });
+  }
+
+  // ── Reemplazar link carrito genérico por link pre-cargado ──────────────
+  const { generarLinkCarrito } = require('../utils/wooCart');
+  const _estadoFinal = getEstado(phone);
+  const _skusParaCarrito = _estadoFinal.skusConfirmados || [];
+  if (
+    _skusParaCarrito.length > 0 &&
+    respuesta.includes('cruzeirogomas.cl/carrito')
+  ) {
+    const _linkGenerado = generarLinkCarrito(_skusParaCarrito);
+    if (_linkGenerado) {
+      respuesta = respuesta.replace(
+        /https?:\/\/cruzeirogomas\.cl\/carrito\/?[^\s)]*/g,
+        _linkGenerado
+      );
+    }
+  }
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
   const conversacion = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
