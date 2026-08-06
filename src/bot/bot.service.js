@@ -682,7 +682,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     || `Estoy aquí para ayudarte. ¿En qué puedo orientarte?`;
 
   // ── Capturar SKUs mencionados en la respuesta del bot ──────────────────
-  const _skuRegex = /\bSKU[:\s]+([A-Z0-9][-A-Z0-9]{4,})/gi;
+  const _skuRegex = /\bSKU[:\s]+([A-Z0-9][A-Z0-9]{3,}(?:[-][A-Z0-9]+)?)/gi;
   const _skusEnRespuesta = [];
   let _skuMatch;
   while ((_skuMatch = _skuRegex.exec(respuesta)) !== null) {
