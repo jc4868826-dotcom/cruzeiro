@@ -19,12 +19,19 @@ async function renderDashboard(container, prefetched = null, filterState = null)
   const leadsEcom = todosLeads.filter(l => (l.segmento||'ecommerce') === 'ecommerce');
   const leadsMay  = todosLeads.filter(l => l.segmento === 'mayorista');
 
+  // FIX 2: normalize etapa_pipeline — leads con ejecutivo asignado que no estén cerrados = 'derivado'
+  for (const l of todosLeads) {
+    if (l.ejecutivo_asignado && !['ganado','Cerrado','cerrado'].includes(l.etapa_pipeline)) {
+      l.etapa_pipeline = 'derivado';
+    }
+  }
+
   const convertidosEcom  = metrics.calidad?.ecommerce?.convertido || 0;
   const convertidosMay   = metrics.calidad?.mayorista?.convertido || 0;
   const totalConvertidos = convertidosEcom + convertidosMay;
   const totalLeads       = (minConv.total||0) + (mayConv.total||0);
   const tasaConvTotal    = totalLeads > 0 ? ((totalConvertidos / totalLeads) * 100).toFixed(1) : '0.0';
-  const mayDerivados     = leadsMay.filter(l => l.etapa_pipeline === 'Contactado').length;
+  const mayDerivados     = leadsMay.filter(l => l.etapa_pipeline === 'derivado').length;
 
   container.innerHTML = `
     <!-- FILTROS -->
@@ -124,7 +131,7 @@ async function renderDashboard(container, prefetched = null, filterState = null)
             </div>
             <div class="bg-slate-50 rounded-xl p-4">
               <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Qu&eacute; buscan</p>
-              ${renderIntencionesRows(metrics.intenciones_ecommerce || {}, 'ecommerce')}
+              ${renderFamiliasRows(leadsEcom)}
             </div>
             <div class="bg-slate-50 rounded-xl p-4">
               <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Status</p>
@@ -404,32 +411,54 @@ function renderCalidadRows(metrics, segmento) {
 // ─── Status del lead ──────────────────────────────────────────────────────────
 
 function _derivarStatusEcommerce(lead) {
-  if (lead.calidad_lead === 'convertido') return 'convertido';
-  if (lead.etapa_pipeline === 'Contactado' || lead.ejecutivo_asignado) return 'derivado';
-  const msgs = lead.mensajes_count || (lead.conversacion?.mensajes || []).length || 0;
-  if (msgs > 2) return 'en_conversacion';
-  return 'nuevo';
+  const ep = lead.etapa_pipeline || '';
+  const hasLink = !!lead.link_carrito_enviado;
+  if (hasLink || lead.calidad_lead === 'convertido' || ['ganado','cotizado','Cotizado','Cerrado','Pedido Enviado'].includes(ep)) {
+    return 'ganado';
+  }
+  if (lead.ejecutivo_asignado && (ep === 'derivado' || ep === 'Contactado')) return 'derivado';
+  const msgs = lead.mensajes_count || 0;
+  if (ep === 'calificado' || msgs > 2) return 'en_conversacion';
+  const horasSdeCreacion = (Date.now() - new Date(lead.createdAt).getTime()) / 3600000;
+  if (ep === 'perdido' || horasSdeCreacion > 48 || msgs <= 2) return 'abandonado';
+  return 'en_conversacion';
 }
 
 function _derivarStatusMayorista(lead) {
-  if (lead.etapa_pipeline === 'Cerrado') return 'cerrado';
-  if (lead.etapa_pipeline === 'Contactado') return 'en_gestion';
+  const ep = lead.etapa_pipeline || '';
+  if (['Cerrado', 'cerrado', 'ganado'].includes(ep)) return 'cerrado';
+  if (ep === 'derivado' || ep === 'Contactado') return 'en_gestion';
   if (lead.ejecutivo_asignado) return 'notificado';
   return 'identificado';
 }
 
+function generarDonutSVG(segments) {
+  const R = 36, cx = 50, cy = 50;
+  const C = 2 * Math.PI * R;
+  const total = segments.reduce((s, seg) => s + seg.n, 0) || 1;
+  let acc = 0;
+  const circles = segments.filter(s => s.n > 0).map(({ n, color }) => {
+    const len = (n / total) * C;
+    const rotateDeg = (acc / total) * 360 - 90;
+    acc += n;
+    return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="15" stroke-dasharray="${len.toFixed(1)} ${(C - len).toFixed(1)}" transform="rotate(${rotateDeg.toFixed(1)} ${cx} ${cy})"/>`;
+  });
+  if (!circles.length) circles.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#e2e8f0" stroke-width="15"/>`);
+  return `<svg viewBox="0 0 100 100" width="80" height="80">${circles.join('')}<circle cx="${cx}" cy="${cy}" r="22" fill="white"/></svg>`;
+}
+
 function renderStatusRows(leads, segmento) {
   const rowsEcom = [
-    { key: 'nuevo',          label: 'Nuevo',           chipCss: 'bg-slate-100 text-slate-600',  chip: 'Sin interacción' },
-    { key: 'en_conversacion',label: 'En conversación', chipCss: 'bg-blue-50 text-blue-600',     chip: 'Activo' },
-    { key: 'derivado',       label: 'Derivado',        chipCss: 'bg-indigo-50 text-indigo-700', chip: 'Con ejecutivo' },
-    { key: 'convertido',     label: 'Convertido',      chipCss: 'bg-green-50 text-green-700',   chip: 'Link enviado' },
+    { key: 'ganado',          label: 'Ganado',          color: '#10b981', chipCss: 'bg-emerald-50 text-emerald-700', chip: 'Link o cotiz.' },
+    { key: 'derivado',        label: 'Derivado',         color: '#6366f1', chipCss: 'bg-indigo-50 text-indigo-700',   chip: 'Con ejecutivo' },
+    { key: 'en_conversacion', label: 'En conversación',  color: '#06b6d4', chipCss: 'bg-cyan-50 text-cyan-700',       chip: 'Bot activo' },
+    { key: 'abandonado',      label: 'Abandonado',       color: '#f59e0b', chipCss: 'bg-amber-50 text-amber-700',     chip: '+48h sin resp.' },
   ];
   const rowsMay = [
-    { key: 'identificado', label: 'Identificado', chipCss: 'bg-amber-50 text-amber-600',   chip: 'RUT + ejecutivo' },
-    { key: 'notificado',   label: 'Notificado',   chipCss: 'bg-blue-50 text-blue-600',     chip: 'Alerta enviada' },
-    { key: 'en_gestion',   label: 'En gestión',   chipCss: 'bg-green-50 text-green-700',   chip: 'Contactado' },
-    { key: 'cerrado',      label: 'Cerrado',      chipCss: 'bg-slate-100 text-slate-500',  chip: 'Resuelto' },
+    { key: 'identificado', label: 'Identificado', color: '#f59e0b', chipCss: 'bg-amber-50 text-amber-700',    chip: 'RUT + exec.' },
+    { key: 'notificado',   label: 'Notificado',   color: '#06b6d4', chipCss: 'bg-cyan-50 text-cyan-700',      chip: 'Alerta enviada' },
+    { key: 'en_gestion',   label: 'En gestión',   color: '#10b981', chipCss: 'bg-emerald-50 text-emerald-700', chip: 'Contactado' },
+    { key: 'cerrado',      label: 'Cerrado',      color: '#94a3b8', chipCss: 'bg-slate-100 text-slate-600',    chip: 'Resuelto' },
   ];
   const rows = segmento === 'mayorista' ? rowsMay : rowsEcom;
   const deriver = segmento === 'mayorista' ? _derivarStatusMayorista : _derivarStatusEcommerce;
@@ -438,27 +467,75 @@ function renderStatusRows(leads, segmento) {
     const k = deriver(l);
     counts[k] = (counts[k] || 0) + 1;
   }
-  const max = Math.max(...rows.map(r => counts[r.key] || 0), 1);
-  return rows.map(r => {
+  const total = leads.length || 1;
+
+  const cards = rows.map(r => {
     const n = counts[r.key] || 0;
-    const pct = Math.round((n / max) * 100);
+    const pct = Math.round((n / total) * 100);
     return `
-      <div onclick="showSegmentDetail('${segmento}','calidad_lead','${r.key}')"
+      <div onclick="showSegmentDetail('${segmento}','_status','${r.key}')"
         class="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-white transition">
+        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${r.color}"></span>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center justify-between mb-1">
+          <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-slate-700">${r.label}</span>
             <div class="flex items-center gap-1.5">
               <span class="text-xs px-1.5 py-0.5 rounded-full font-medium ${r.chipCss}">${r.chip}</span>
               <span class="text-xs font-bold text-slate-700">${n}</span>
             </div>
           </div>
-          <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-            <div class="h-full bg-slate-400 rounded-full transition-all" style="width:${pct}%"></div>
+          <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1">
+            <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${r.color}"></div>
           </div>
         </div>
       </div>`;
   }).join('');
+
+  const segments = rows.map(r => ({ n: counts[r.key] || 0, color: r.color }));
+
+  return `<div class="flex items-start gap-2"><div class="flex-1">${cards}</div><div class="shrink-0 mt-1">${generarDonutSVG(segments)}</div></div>`;
+}
+
+// ─── Familias de catálogo (Qué buscan) ───────────────────────────────────────
+
+function renderFamiliasRows(leads) {
+  const _JUNK = new Set(['', 'Catálogo general', 'Sin clasificar', 'sin_clasificar']);
+  const _COLORS = ['#6366f1', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
+  const counts = {};
+  for (const l of leads) {
+    const f = (l.familia_interes || '').trim();
+    if (!f || _JUNK.has(f)) continue;
+    counts[f] = (counts[f] || 0) + 1;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const top5 = sorted.slice(0, 5);
+  const otrasN = sorted.slice(5).reduce((s, [, n]) => s + n, 0);
+  const max = top5[0]?.[1] || 1;
+  if (!top5.length) {
+    return '<p class="text-xs text-slate-400 py-1 px-2">Sin familias clasificadas aún</p>';
+  }
+  const rows = top5.map(([familia, n], i) => {
+    const pct = Math.round((n / max) * 100);
+    const color = _COLORS[i % _COLORS.length];
+    return `
+      <div onclick="showSegmentDetail('ecommerce','familia_interes',${JSON.stringify(familia)})"
+        class="flex items-center gap-3 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color}"></span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-700 truncate">${escHtml(familia)}</span>
+            <span class="text-xs font-bold text-slate-700 ml-2">${n}</span>
+          </div>
+          <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+            <div class="h-full rounded-full" style="width:${pct}%;background:${color}"></div>
+          </div>
+        </div>
+      </div>`;
+  });
+  if (otrasN > 0) {
+    rows.push(`<div class="flex items-center gap-3 py-1.5 px-2"><span class="w-2.5 h-2.5 rounded-full shrink-0 bg-slate-300"></span><span class="text-xs text-slate-400">Otras familias (${otrasN})</span></div>`);
+  }
+  return rows.join('');
 }
 
 // ─── Motivo de contacto mayorista ─────────────────────────────────────────────
@@ -582,11 +659,24 @@ async function showSegmentDetail(segmento, campo, valor) {
 
   try {
     const res = await api.get('/api/leads?limit=200');
-    const _defaultVal = campo === 'calidad_lead' ? 'bajo' : 'sin_clasificar';
-    const filtered = (res.data || []).filter(l =>
-      (l.segmento || 'ecommerce') === segmento &&
-      (l[campo] || _defaultVal) === valor
-    );
+    let filtered;
+    if (campo === '_status') {
+      const deriver = segmento === 'mayorista' ? _derivarStatusMayorista : _derivarStatusEcommerce;
+      // apply same normalization
+      const rawLeads = res.data || [];
+      for (const l of rawLeads) {
+        if (l.ejecutivo_asignado && !['ganado','Cerrado','cerrado'].includes(l.etapa_pipeline)) {
+          l.etapa_pipeline = 'derivado';
+        }
+      }
+      filtered = rawLeads.filter(l => (l.segmento || 'ecommerce') === segmento && deriver(l) === valor);
+    } else {
+      const _defaultVal = campo === 'calidad_lead' ? 'bajo' : 'sin_clasificar';
+      filtered = (res.data || []).filter(l =>
+        (l.segmento || 'ecommerce') === segmento &&
+        (l[campo] || _defaultVal) === valor
+      );
+    }
     document.getElementById('kpi-detail-body').innerHTML = filtered.length === 0
       ? '<p class="text-sm text-slate-400 text-center py-8">No hay leads.</p>'
       : filtered.map(l => `

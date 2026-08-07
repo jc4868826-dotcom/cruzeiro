@@ -52,6 +52,18 @@ router.get('/', requireAuth, async (req, res, next) => {
   }
 });
 
+// ─── GET /api/leads/:id/cotizaciones ─────────────────────────────────────────
+router.get('/:id/cotizaciones', requireAuth, async (req, res, next) => {
+  try {
+    const lead = await db.getById('leads', req.params.id);
+    if (!lead) return res.status(404).json({ error: 'No encontrado', message: 'Lead no existe.' });
+    const cotizaciones = buscarCotizacionesPorRut(lead.rut || '');
+    return res.json({ cotizaciones });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── GET /api/leads/:id ───────────────────────────────────────────────────────
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {

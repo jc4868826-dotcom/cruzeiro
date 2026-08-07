@@ -745,9 +745,11 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       }
     }
 
-    if (!leadExistente?.familia_interes && Array.isArray(productosCtx) && productosCtx.length > 0) {
+    const _JUNK_FAM = new Set(['', 'Catálogo general', 'Sin clasificar', 'sin_clasificar']);
+    const _famActual = leadExistente?.familia_interes || '';
+    if ((!_famActual || _JUNK_FAM.has(_famActual)) && Array.isArray(productosCtx) && productosCtx.length > 0) {
       const _fam = productosCtx[0].padre_familia || productosCtx[0].Padre_familia;
-      if (_fam) leadUpdate.familia_interes = _fam;
+      if (_fam && !_JUNK_FAM.has(_fam)) leadUpdate.familia_interes = _fam;
     }
 
     const _CALIDAD_ORDEN = ['bajo', 'medio', 'alto', 'convertido'];

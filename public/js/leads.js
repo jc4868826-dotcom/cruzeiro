@@ -260,7 +260,7 @@ async function verLead(id) {
 
     <!-- Tabs internas -->
     <div class="border-b border-slate-200 flex shrink-0 overflow-x-auto">
-      ${['Chat', 'Datos', 'Bitácora', 'Pipeline', 'Pedidos'].map((t, i) => `
+      ${['Chat', 'Datos', 'Bitácora', 'Pipeline', 'Pedidos', 'Cotizaciones'].map((t, i) => `
         <button class="lead-tab px-5 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap shrink-0
           ${i === 0 ? 'border-[#0d5c8c] text-[#0d5c8c]' : 'border-transparent text-slate-500 hover:text-slate-700'}"
           onclick="switchLeadTab(this, 'lead-tab-${t.toLowerCase()}', '${lead.id}')">${t}</button>
@@ -505,6 +505,12 @@ async function verLead(id) {
            </div>`
       }
     </div>
+
+    <!-- Cotizaciones FTP (oculto) -->
+    <div id="lead-tab-cotizaciones" class="flex-1 overflow-y-auto p-6 hidden">
+      <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Cotizaciones ERP (FTP)</p>
+      ${renderCotizacionesTab(lead.cotizaciones || [], lead.rut)}
+    </div>
   `;
 
   const cm = document.getElementById('chat-messages');
@@ -654,7 +660,7 @@ function switchLeadTab(btn, tabId, leadId) {
   btn.classList.add('border-[#0d5c8c]', 'text-[#0d5c8c]');
   btn.classList.remove('border-transparent', 'text-slate-500');
 
-  ['chat', 'datos', 'bitácora', 'pipeline', 'pedidos'].forEach(t => {
+  ['chat', 'datos', 'bitácora', 'pipeline', 'pedidos', 'cotizaciones'].forEach(t => {
     const el = document.getElementById(`lead-tab-${t}`);
     if (el) el.classList.toggle('hidden', `lead-tab-${t}` !== tabId);
   });
@@ -1024,6 +1030,68 @@ async function buscarPedidoPorNV(nv) {
   } catch (e) {
     resultEl.innerHTML = `<p class="text-sm text-slate-400">No se encontró la NV ${escHtml(nv)}.</p>`;
   }
+}
+
+// ─── Cotizaciones FTP tab ─────────────────────────────────────────────────────
+
+function renderCotizacionesTab(cotizaciones, rut) {
+  if (!rut) {
+    return '<p class="text-xs text-slate-400">Sin RUT registrado — no se pueden buscar cotizaciones en el sistema.</p>';
+  }
+  if (!cotizaciones || !cotizaciones.length) {
+    return '<p class="text-xs text-slate-400 py-4">Sin cotizaciones encontradas para este RUT en el ERP.</p>';
+  }
+
+  const _estadoBadge = (estado) => {
+    const e = (estado || '').toUpperCase();
+    if (e.includes('ACEPTADA')) return `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">${escHtml(estado)}</span>`;
+    if (e.includes('VENCIDA'))  return `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-600">${escHtml(estado)}</span>`;
+    if (e.includes('VIGENTE') || e.includes('PENDIENTE')) return `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">${escHtml(estado)}</span>`;
+    return `<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">${escHtml(estado)}</span>`;
+  };
+
+  // Group by fecha+estado+vendedor to aggregate line items into cotización groups
+  const grupos = {};
+  for (const c of cotizaciones) {
+    const key = `${c.fecha}|${c.estado}|${c.vendedor}`;
+    if (!grupos[key]) grupos[key] = { fecha: c.fecha, estado: c.estado, vendedor: c.vendedor, items: [], total: 0 };
+    grupos[key].items.push(c);
+    grupos[key].total += c.totalItem || 0;
+  }
+
+  const fmtClp = n => n.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
+
+  return Object.values(grupos).map(g => `
+    <div class="border border-slate-200 rounded-xl p-4 mb-3">
+      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${_estadoBadge(g.estado)}
+          <span class="text-xs text-slate-500">${escHtml(g.fecha)}</span>
+          <span class="text-xs text-slate-400">· ${escHtml(g.vendedor)}</span>
+        </div>
+        <span class="text-xs font-bold text-slate-800">${fmtClp(g.total)}</span>
+      </div>
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="border-b border-slate-100">
+            <th class="text-left py-1 pr-2 text-slate-400 font-medium">Descripción</th>
+            <th class="text-right py-1 px-2 text-slate-400 font-medium">Cant.</th>
+            <th class="text-right py-1 px-2 text-slate-400 font-medium">Precio</th>
+            <th class="text-right py-1 pl-2 text-slate-400 font-medium">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${g.items.map(it => `
+            <tr class="border-b border-slate-50 last:border-0">
+              <td class="py-1 pr-2 text-slate-700">${escHtml(it.descripcion)}</td>
+              <td class="py-1 px-2 text-right text-slate-500">${it.cantidad} ${escHtml(it.unidad)}</td>
+              <td class="py-1 px-2 text-right text-slate-500">${fmtClp(it.precioCotizado || 0)}</td>
+              <td class="py-1 pl-2 text-right font-medium text-slate-700">${fmtClp(it.totalItem || 0)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `).join('');
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
