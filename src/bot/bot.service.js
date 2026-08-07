@@ -323,6 +323,14 @@ REGLAS ABSOLUTAS — LEE ANTES DE CADA RESPUESTA
 - NUNCA menciones cantidades de stock al cliente ("tenemos 15 MT", "quedan 3 unidades", etc.). El stock es solo para tu uso interno para saber si puedes ofrecer el producto. Si el cliente pregunta por disponibilidad, di que está disponible o consulta con el ejecutivo — nunca el número exacto.
 
 ═══════════════════════════════════
+REGLA ANTI-LOOP — CRÍTICO
+═══════════════════════════════════
+Antes de hacer cualquier pregunta, revisa los últimos 4 mensajes del historial. Si ya hiciste exactamente esa misma pregunta (ej: "¿cuántos metros?", "¿para qué espacio?", "¿interior o exterior?"), NO la repitas. En cambio:
+  • Si el cliente no respondió → avanza al siguiente paso con un supuesto razonable y ofrece las opciones.
+  • Si el cliente ya respondió en un mensaje anterior → usa esa respuesta y continúa.
+Nunca preguntes lo mismo dos veces en la misma conversación.
+
+═══════════════════════════════════
 CÁLCULOS DE CANTIDAD — OBLIGATORIO
 ═══════════════════════════════════
 Cuando el cliente da m², TÚ calculas — nunca le preguntes de nuevo.
@@ -495,9 +503,9 @@ async function migrarEtapasLegacy() {
       } else if (lead.ejecutivo_asignado || etapaActual === 'Contactado') {
         nuevaEtapa = 'derivado';
       } else {
-        const msgsBot = mensajes.filter(m => m.rol === 'bot');
-        const botMostroSku    = msgsBot.some(m => /\bSKU[:\s]+[A-Z0-9]/i.test(m.texto));
-        const botMostroPrecio = msgsBot.some(m => /\$\s*\d[\d.,]*/.test(m.texto));
+        const msgsBot = mensajes.filter(m => (m.rol || m.role) === 'bot' || (m.rol || m.role) === 'assistant');
+        const botMostroSku    = msgsBot.some(m => /\bSKU[:\s]+[A-Z0-9]/i.test(m.texto || m.content || m.text || ''));
+        const botMostroPrecio = msgsBot.some(m => /\$\s*\d[\d.,]*/.test(m.texto || m.content || m.text || ''));
         if (botMostroSku || botMostroPrecio || lead.calidad_lead === 'alto' || lead.calidad_lead === 'convertido') {
           nuevaEtapa = 'calificado';
         }
@@ -553,7 +561,15 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── PASO 1: Leer estado actual ────────────────────────────────────────────
   const estado = getEstado(phone);
   const historialConv = (conversacionExistente?.mensajes || [])
-    .filter(m => m.rol === 'cliente' || m.rol === 'bot');
+    .filter(m => {
+      const r = m.rol || m.role || m.from || '';
+      return r === 'cliente' || r === 'bot' || r === 'user' || r === 'assistant';
+    })
+    .map(m => ({
+      ...m,
+      rol: m.rol || (m.role === 'user' ? 'cliente' : m.role === 'assistant' ? 'bot' : (m.from || m.role || m.rol)),
+      texto: m.texto || m.content || m.text || '',
+    }));
 
   // ── PASO 2: Detección silenciosa de RUT (siempre, en cualquier etapa) ────
   if (!estado.rut && !estado.rut_no_encontrado) {
@@ -725,6 +741,40 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
           ejecutivo_asignado: estadoActual.ejecutivoAsignado,
         });
       }
+    }
+  }
+
+  // ── BUG 1: Detección explícita de pedido de ejecutivo (ANTES del GPT) ────
+  const _PATRON_DERIVACION = [
+    /comunica[rme]* con/i, /hablar con/i, /contacta[rme]* con/i,
+    /pasa[rme]* con/i, /quiero hablar con/i, /me puedes? comunicar/i,
+    /quiero que me llame/i, /dame el contacto de/i, /pon[eme]* en contacto/i,
+    /quiero un ejecutivo/i, /ejecutivo de ventas/i, /hablar con alguien/i,
+    /quiero hablar con una persona/i, /quiero atenci[oó]n personalizada/i,
+  ];
+  const _NOMBRES_EJECUTIVOS = {
+    marcelis: 'marcelis.arguelles', arguelles: 'marcelis.arguelles',
+    mauricio: 'mauricio.santibanez', santibanez: 'mauricio.santibanez',
+  };
+  if (_PATRON_DERIVACION.some(p => p.test(texto)) && !estadoActual.alertaMayoristaEnviada) {
+    const _textoNorm = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    let _ejDeriv = null;
+    for (const [token, username] of Object.entries(_NOMBRES_EJECUTIVOS)) {
+      if (_textoNorm.includes(token)) { _ejDeriv = username; break; }
+    }
+    if (!_ejDeriv) _ejDeriv = estadoActual.ejecutivoAsignado || 'marcelis.arguelles';
+    setEstado(phone, { ejecutivoAsignado: _ejDeriv });
+    leadUpdate.ejecutivo_asignado = _ejDeriv;
+    leadUpdate.etapa_pipeline = 'derivado';
+    const _CALIDAD_ORD = ['bajo', 'medio', 'alto', 'convertido'];
+    if (_CALIDAD_ORD.indexOf(leadUpdate.calidad_lead || 'bajo') < 1) leadUpdate.calidad_lead = 'medio';
+    if (conversacionExistente?.lead_id) {
+      try {
+        await db.update('leads', conversacionExistente.lead_id, {
+          ejecutivo_asignado: _ejDeriv,
+          etapa_pipeline: 'derivado',
+        });
+      } catch (_e) {}
     }
   }
 

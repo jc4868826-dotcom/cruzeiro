@@ -6,7 +6,7 @@ const { requireAuth } = require('../middlewares/auth.middleware');
 
 const router = express.Router();
 
-const ETAPAS = ['Nuevo', 'Contactado', 'Cotizado', 'Pedido Enviado', 'Cerrado', 'Abandonado'];
+const ETAPAS = ['Nuevo', 'Cotizado', 'Pedido Enviado', 'Cerrado', 'Abandonado'];
 
 // GET /api/pipeline — leads grouped by estado
 router.get('/', requireAuth, async (req, res, next) => {

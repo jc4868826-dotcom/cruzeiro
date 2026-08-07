@@ -172,7 +172,6 @@ function badge(text, color) {
 function estadoBadge(estado) {
   const map = {
     'Nuevo': 'blue',
-    'Contactado': 'yellow',
     'Cotizado': 'ocean',
     'Pedido Enviado': 'green',
     'Cerrado': 'green',

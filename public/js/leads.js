@@ -49,7 +49,7 @@ async function renderLeads(container) {
           </button>
           <select id="lead-estado" class="shrink-0 text-xs border border-slate-300 rounded-full px-3 py-1 bg-white text-slate-600 focus:outline-none focus:border-[#0d5c8c]" onchange="filtrarLeads()">
             <option value="">Todos los estados</option>
-            <option>Nuevo</option><option>Contactado</option><option>Cotizado</option>
+            <option>Nuevo</option><option>Cotizado</option>
             <option>Pedido Enviado</option><option>Cerrado</option><option>Abandonado</option>
           </select>
           <button onclick="limpiarFiltrosLeads()" class="shrink-0 text-xs text-slate-400 hover:text-slate-600 px-2 transition">✕</button>
@@ -446,7 +446,7 @@ async function verLead(id) {
         <label class="text-xs font-medium text-slate-500 block mb-1.5">Estado del pipeline</label>
         <select id="datos-estado-select" onchange="cambiarEstado('${lead.id}', this.value)"
           class="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-[#0d5c8c]">
-          ${['Nuevo', 'Contactado', 'Cotizado', 'Pedido Enviado', 'Cerrado', 'Abandonado'].map(e =>
+          ${['Nuevo', 'Cotizado', 'Pedido Enviado', 'Cerrado', 'Abandonado'].map(e =>
             `<option ${lead.estado === e ? 'selected' : ''}>${e}</option>`
           ).join('')}
         </select>
@@ -546,7 +546,7 @@ function botModeLabel(lead) {
 
 // ─── Pipeline steps HTML ──────────────────────────────────────────────────────
 function pipelineStepsHTML(leadId, estadoActual) {
-  const etapas = ['Nuevo', 'Contactado', 'Cotizado', 'Pedido Enviado', 'Cerrado', 'Abandonado'];
+  const etapas = ['Nuevo', 'Cotizado', 'Pedido Enviado', 'Cerrado', 'Abandonado'];
   return etapas.map((etapa, idx, arr) => {
     const currentIdx = arr.indexOf(estadoActual);
     const isActive = idx === currentIdx;

@@ -387,9 +387,11 @@ function renderCalidadRows(metrics, segmento) {
     { key: 'convertido',label: 'Convertido', dot: 'bg-emerald-400', bar: 'bg-emerald-400', text: 'text-emerald-600', sub: 'Recibió link o fue derivado' },
   ];
   const max = Math.max(...rows.map(r => cal[r.key] || 0), 1);
+  const totalCal = rows.reduce((s, r) => s + (cal[r.key] || 0), 0) || 1;
   return rows.map(r => {
     const n = cal[r.key] || 0;
     const pct = Math.round((n / max) * 100);
+    const pctLabel = Math.round((n / totalCal) * 100);
     return `
       <div onclick="showSegmentDetail('${segmento}','calidad_lead','${r.key}')"
         class="flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer hover:bg-slate-50 transition">
@@ -397,7 +399,10 @@ function renderCalidadRows(metrics, segmento) {
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-slate-700">${r.label}</span>
-            <span class="text-xs font-bold ${r.text} ml-2">${n}</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-slate-400">${pctLabel}%</span>
+              <span class="text-xs font-bold ${r.text}">${n}</span>
+            </div>
           </div>
           <div class="text-xs text-slate-400 mt-0.5 mb-1">${r.sub}</div>
           <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -423,13 +428,13 @@ function _derivarStatusEcommerce(lead) {
 function _derivarStatusMayorista(lead) {
   const ep = lead.etapa_pipeline || '';
   if (['Cerrado', 'cerrado', 'ganado'].includes(ep)) return 'cerrado';
-  if (ep === 'derivado' || ep === 'Contactado') return 'en_gestion';
+  if (ep === 'derivado') return 'en_gestion';
   if (lead.ejecutivo_asignado) return 'notificado';
   return 'identificado';
 }
 
 function generarDonutSVG(segments, totalLeads) {
-  const R = 44, cx = 55, cy = 55;
+  const R = 45, cx = 60, cy = 60;
   const C = 2 * Math.PI * R;
   const totalN = segments.reduce((s, seg) => s + seg.n, 0) || 1;
   let acc = 0;
@@ -437,26 +442,26 @@ function generarDonutSVG(segments, totalLeads) {
     const len = (n / totalN) * C;
     const rotateDeg = (acc / totalN) * 360 - 90;
     acc += n;
-    return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="18" stroke-dasharray="${len.toFixed(1)} ${(C - len).toFixed(1)}" transform="rotate(${rotateDeg.toFixed(1)} ${cx} ${cy})"/>`;
+    return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="15" stroke-dasharray="${len.toFixed(1)} ${(C - len).toFixed(1)}" transform="rotate(${rotateDeg.toFixed(1)} ${cx} ${cy})"/>`;
   });
-  if (!circles.length) circles.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#e2e8f0" stroke-width="18"/>`);
+  if (!circles.length) circles.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#e2e8f0" stroke-width="15"/>`);
   const n = totalLeads !== undefined ? totalLeads : totalN;
-  const centerText = `<text x="${cx}" y="${cy - 5}" text-anchor="middle" font-size="18" font-weight="700" fill="#1e293b">${n}</text><text x="${cx}" y="${cy + 11}" text-anchor="middle" font-size="9" fill="#94a3b8">leads</text>`;
-  return `<svg viewBox="0 0 110 110" width="110" height="110">${circles.join('')}<circle cx="${cx}" cy="${cy}" r="30" fill="white"/>${centerText}</svg>`;
+  const centerText = `<text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="18" font-weight="700" fill="#1e293b">${n}</text><text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="9" fill="#64748b">leads</text>`;
+  return `<svg viewBox="0 0 120 120" width="120" height="120">${circles.join('')}<circle cx="${cx}" cy="${cy}" r="30" fill="white"/>${centerText}</svg>`;
 }
 
 function renderStatusRows(leads, segmento) {
   const rowsEcom = [
-    { key: 'ganado',          label: 'Ganado',          color: '#10b981', chipCss: 'bg-emerald-50 text-emerald-700', chip: 'Link o cotiz.' },
-    { key: 'derivado',        label: 'Derivado',         color: '#6366f1', chipCss: 'bg-indigo-50 text-indigo-700',   chip: 'Con ejecutivo' },
-    { key: 'en_conversacion', label: 'En conversación',  color: '#06b6d4', chipCss: 'bg-cyan-50 text-cyan-700',       chip: 'Bot activo' },
-    { key: 'abandonado',      label: 'Abandonado',       color: '#f59e0b', chipCss: 'bg-amber-50 text-amber-700',     chip: '+48h sin resp.' },
+    { key: 'ganado',          label: 'Ganado',         color: '#10b981', sub: 'Link carrito o cotiz.' },
+    { key: 'derivado',        label: 'Derivado',        color: '#0d5c8c', sub: 'Con ejecutivo' },
+    { key: 'en_conversacion', label: 'En conversación', color: '#f59e0b', sub: 'Bot activo' },
+    { key: 'abandonado',      label: 'Abandonado',      color: '#94a3b8', sub: 'Sin respuesta' },
   ];
   const rowsMay = [
-    { key: 'identificado', label: 'Identificado', color: '#f59e0b', chipCss: 'bg-amber-50 text-amber-700',    chip: 'RUT + exec.' },
-    { key: 'notificado',   label: 'Notificado',   color: '#06b6d4', chipCss: 'bg-cyan-50 text-cyan-700',      chip: 'Alerta enviada' },
-    { key: 'en_gestion',   label: 'En gestión',   color: '#10b981', chipCss: 'bg-emerald-50 text-emerald-700', chip: 'Contactado' },
-    { key: 'cerrado',      label: 'Cerrado',      color: '#94a3b8', chipCss: 'bg-slate-100 text-slate-600',    chip: 'Resuelto' },
+    { key: 'identificado', label: 'Identificado', color: '#f59e0b', sub: 'RUT + ejecutivo' },
+    { key: 'notificado',   label: 'Notificado',   color: '#0d5c8c', sub: 'Alerta enviada' },
+    { key: 'en_gestion',   label: 'En gestión',   color: '#10b981', sub: 'Derivado a ejecutivo' },
+    { key: 'cerrado',      label: 'Cerrado',       color: '#94a3b8', sub: 'Resuelto' },
   ];
   const rows = segmento === 'mayorista' ? rowsMay : rowsEcom;
   const deriver = segmento === 'mayorista' ? _derivarStatusMayorista : _derivarStatusEcommerce;
@@ -470,21 +475,21 @@ function renderStatusRows(leads, segmento) {
   const cards = rows.map(r => {
     const n = counts[r.key] || 0;
     const pct = Math.round((n / total) * 100);
+    const bg = r.color + '18';
     return `
       <div onclick="showSegmentDetail('${segmento}','_status','${r.key}')"
-        class="flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-white transition">
+        class="flex items-center gap-2.5 py-2 px-3 rounded-xl cursor-pointer hover:opacity-90 transition mb-1.5"
+        style="background:${bg}">
         <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${r.color}"></span>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-slate-700">${r.label}</span>
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium ${r.chipCss}">${r.chip}</span>
-              <span class="text-xs font-bold text-slate-700">${n}</span>
+          <div class="flex items-center justify-between gap-1">
+            <span class="text-xs font-semibold text-slate-800">${r.label}</span>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span class="text-[10px] text-slate-500">${pct}%</span>
+              <span class="text-xs font-bold" style="color:${r.color}">${n}</span>
             </div>
           </div>
-          <div class="h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1">
-            <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${r.color}"></div>
-          </div>
+          <span class="text-[10px] text-slate-500">${r.sub}</span>
         </div>
       </div>`;
   }).join('');
@@ -492,7 +497,7 @@ function renderStatusRows(leads, segmento) {
   const segments = rows.map(r => ({ n: counts[r.key] || 0, color: r.color }));
 
   return `
-    <div class="flex flex-col items-center gap-2">
+    <div class="flex flex-col items-center gap-3">
       <div>${generarDonutSVG(segments, leads.length)}</div>
       <div class="w-full">${cards}</div>
     </div>`;

@@ -6,7 +6,6 @@
 
 const PIPELINE_ETAPAS = [
   { key: 'Nuevo',          color: '#64748b', dot: '#94a3b8' },
-  { key: 'Contactado',     color: '#0d5c8c', dot: '#0d5c8c' },
   { key: 'Cotizado',       color: '#b45309', dot: '#d97706' },
   { key: 'Pedido Enviado', color: '#0f766e', dot: '#14b8a6' },
   { key: 'Cerrado',        color: '#15803d', dot: '#22c55e' },
