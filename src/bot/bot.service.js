@@ -483,6 +483,25 @@ function _detectarEventosPipeline(texto, respuesta, leadUpdate, leadExistente, e
   }
 }
 
+// ─── Inferir etapa_pipeline garantizando que nunca retroceda ─────────────────
+
+function inferirEtapaPipeline(leadUpdate, etapaActual) {
+  const orden = ['nuevo', 'calificado', 'cotizado', 'derivado', 'ganado', 'perdido'];
+  if (leadUpdate.etapa_pipeline && orden.includes(leadUpdate.etapa_pipeline)) {
+    const idxActual = orden.indexOf(etapaActual || 'nuevo');
+    const idxNueva  = orden.indexOf(leadUpdate.etapa_pipeline);
+    return idxNueva > idxActual ? leadUpdate.etapa_pipeline : (etapaActual || 'nuevo');
+  }
+  if (leadUpdate.link_carrito_enviado) return 'ganado';
+  if (leadUpdate.ejecutivo_asignado)   return 'derivado';
+  if (leadUpdate.rut || leadUpdate.familia_interes ||
+      leadUpdate.calidad_lead === 'alto' || leadUpdate.calidad_lead === 'convertido') {
+    const idx = orden.indexOf(etapaActual || 'nuevo');
+    return idx < orden.indexOf('calificado') ? 'calificado' : (etapaActual || 'nuevo');
+  }
+  return etapaActual || 'nuevo';
+}
+
 // ─── Migración de etapas para leads legacy (llamar al arrancar) ───────────────
 
 async function migrarEtapasLegacy() {
@@ -930,17 +949,24 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     const _idxActual = Math.max(0, _CALIDAD_ORDEN.indexOf(_calidadActual));
     const _idxCalc   = Math.max(0, _CALIDAD_ORDEN.indexOf(_calidadCalc));
     leadUpdate.calidad_lead = _CALIDAD_ORDEN[Math.max(_idxActual, _idxCalc)];
-    // ─────────────────────────────────────────────────────────────────────────
+
+    // FIX 2: inferir etapa_pipeline y nunca retroceder
+    const etapaActual = leadExistente?.etapa_pipeline || 'nuevo';
+    const etapaNueva  = inferirEtapaPipeline(leadUpdate, etapaActual);
+    if (etapaNueva !== etapaActual) leadUpdate.etapa_pipeline = etapaNueva;
 
     if (leadId) {
-      // Siempre asegurar que el phone quede registrado en el lead
+      // FIX 3: patch siempre incluye etapa_pipeline y ultima_actividad
       const patch = { ...leadUpdate };
       if (!leadExistente?.phone) patch.phone = phone;
       if (!leadExistente?.telefono) patch.telefono = phone;
-      if (Object.keys(patch).length > 0) {
-        await db.update('leads', leadId, patch);
-        console.log('[bot] Lead actualizado:', leadId, JSON.stringify(patch).slice(0, 100));
-      }
+      const patchFinal = {
+        ...patch,
+        etapa_pipeline: leadUpdate.etapa_pipeline || etapaActual || 'nuevo',
+        ultima_actividad: new Date().toISOString(),
+      };
+      await db.update('leads', leadId, patchFinal);
+      console.log('[bot] Lead actualizado:', leadId, JSON.stringify(patchFinal).slice(0, 100));
       // Vincular conversación al lead si aún no está vinculada
       if (conversacion?.id && !conversacion.lead_id) {
         await db.update('conversaciones', conversacion.id, { lead_id: leadId });
