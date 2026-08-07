@@ -4,6 +4,7 @@ const express = require('express');
 const db = require('../data/db');
 const { requireAuth } = require('../middlewares/auth.middleware');
 const { buscarCotizacionesPorRut } = require('../bot/datos');
+const dataStore = require('../data/dataStore');
 
 const router = express.Router();
 
@@ -47,6 +48,20 @@ router.get('/', requireAuth, async (req, res, next) => {
     const paginated = leads.slice(start, start + limitNum);
 
     return res.json({ total, page: pageNum, limit: limitNum, data: paginated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/leads/:id/pedidos-woo ──────────────────────────────────────────
+router.get('/:id/pedidos-woo', requireAuth, async (req, res, next) => {
+  try {
+    const lead = await db.getById('leads', req.params.id);
+    if (!lead) return res.status(404).json({ error: 'No encontrado', message: 'Lead no existe.' });
+    if (!lead.rut) return res.json({ pedidos: [], mensaje: 'Sin RUT identificado' });
+    const pedidos = dataStore.getWooOrdersByRut(lead.rut);
+    pedidos.sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    return res.json({ pedidos });
   } catch (err) {
     next(err);
   }

@@ -1,6 +1,7 @@
 'use strict';
 const ftp = require('basic-ftp');
 const { Writable } = require('stream');
+const xlsx = require('xlsx');
 
 const RELOAD_MS = 10 * 60 * 1000;
 const ESTADOS_COTIZACION = new Set(['ACEPTADA COMPLETA', 'ACEPTADA PARCIAL', 'VENCIDA', 'VIGENTE', 'PENDIENTE']);
@@ -10,6 +11,8 @@ let _store = {
   ventasRaw:    [],
   cotizaciones: [],
   stockMap:     new Map(),
+  wooMap:       {},
+  wooOrders:    [],
   lastLoaded:   null,
 };
 
@@ -117,6 +120,64 @@ function cargarStockFTP(rows) {
   return map;
 }
 
+function cargarWooMapFTP(buf) {
+  const mapa = {};
+  const lineas = buf.toString('latin1').split(/\r?\n/).filter(l => l.trim());
+  for (const linea of lineas) {
+    const partes = linea.split(',').map(p => p.trim().replace(/^"(.*)"$/, '$1'));
+    if (partes.length >= 2 && /^\d+$/.test(partes[0])) {
+      mapa[partes[1]] = partes[0]; // { SKU: wooId }
+    }
+  }
+  return mapa;
+}
+
+function cargarRegPedidosFTP(buf) {
+  const wb = xlsx.read(buf, { type: 'buffer', cellDates: true });
+  const ws = wb.Sheets['Pedidos'];
+  if (!ws) return [];
+  const filas = xlsx.utils.sheet_to_json(ws, { defval: '' });
+  const normRut = r => String(r || '').replace(/[^0-9]/g, '');
+  const pedidosMap = {};
+
+  for (const fila of filas) {
+    const nroPedido = String(fila['Número de pedido'] || '').trim();
+    if (!nroPedido) continue;
+    const rut = normRut(fila['RUT']);
+
+    if (!pedidosMap[nroPedido]) {
+      const rawFecha = fila['Fecha del pedido'];
+      const fechaStr = rawFecha instanceof Date
+        ? rawFecha.toISOString().slice(0, 10)
+        : String(rawFecha || '').slice(0, 10);
+      pedidosMap[nroPedido] = {
+        nroPedido,
+        rut,
+        rutOriginal: String(fila['RUT'] || ''),
+        estado:   String(fila['Estado del pedido'] || '').trim(),
+        fecha:    fechaStr,
+        nombre:   `${fila['Nombre (facturación)'] || ''} ${fila['Apellidos (facturación)'] || ''}`.trim(),
+        email:    String(fila['Correo electrónico (facturación)'] || '').trim(),
+        telefono: String(fila['Teléfono (facturación)'] || '').trim(),
+        total:    Number(fila['Importe total del pedido']) || 0,
+        envio:    String(fila['Título del método de envío'] || '').trim(),
+        pago:     String(fila['Título del método de pago'] || '').trim(),
+        items:    [],
+      };
+    }
+    const sku = String(fila['SKU'] || '').trim();
+    if (sku) {
+      pedidosMap[nroPedido].items.push({
+        sku,
+        articulo: String(fila['Nombre del artículo'] || '').trim(),
+        cantidad: Number(fila['Cantidad (- reembolso)']) || 0,
+        costo:    Number(fila['Coste de artículo']) || 0,
+      });
+    }
+  }
+  return Object.values(pedidosMap);
+}
+
 // ─── FTP download ─────────────────────────────────────────────────────────────
 
 async function downloadToBuffer(client, remotePath) {
@@ -144,6 +205,8 @@ async function downloadAndParse() {
     let ventasRaw    = _store.ventasRaw;
     let cotizaciones = _store.cotizaciones;
     let stockMap     = _store.stockMap;
+    let wooMap       = _store.wooMap;
+    let wooOrders    = _store.wooOrders;
 
     const tareas = [
       { file: 'Clientes.csv',        load: rows => { clientesMap  = cargarClientesFTP(rows); } },
@@ -162,8 +225,26 @@ async function downloadAndParse() {
       }
     }
 
-    _store = { clientesMap, ventasRaw, cotizaciones, stockMap, lastLoaded: new Date() };
-    console.log(`[ftpLoader] OK: ${clientesMap.size} clientes | ${ventasRaw.length} ventas | ${cotizaciones.length} cotizaciones | ${stockMap.size} SKUs stock`);
+    // WooMap.csv — comma-delimited, sin header, ID,SKU
+    try {
+      const buf = await downloadToBuffer(client, 'WooMap.csv');
+      wooMap = cargarWooMapFTP(buf);
+      console.log(`[ftpLoader] WooMap: ${Object.keys(wooMap).length} SKUs mapeados`);
+    } catch (e) {
+      console.error('[ftpLoader] Error cargando WooMap.csv:', e.message);
+    }
+
+    // RegPedidos.xlsx — WooCommerce orders grouped by order number
+    try {
+      const buf = await downloadToBuffer(client, 'RegPedidos.xlsx');
+      wooOrders = cargarRegPedidosFTP(buf);
+      console.log(`[ftpLoader] RegPedidos: ${wooOrders.length} pedidos WooCommerce`);
+    } catch (e) {
+      console.error('[ftpLoader] Error cargando RegPedidos.xlsx:', e.message);
+    }
+
+    _store = { clientesMap, ventasRaw, cotizaciones, stockMap, wooMap, wooOrders, lastLoaded: new Date() };
+    console.log(`[ftpLoader] OK: ${clientesMap.size} clientes | ${ventasRaw.length} ventas | ${cotizaciones.length} cotizaciones | ${stockMap.size} SKUs stock | ${Object.keys(wooMap).length} wooMap | ${wooOrders.length} pedidosWoo`);
   } catch (e) {
     console.error('[ftpLoader] Error de conexión FTP:', e.message);
   } finally {
@@ -184,5 +265,12 @@ function getClientesMap()  { return _store.clientesMap; }
 function getVentasRaw()    { return _store.ventasRaw; }
 function getCotizaciones() { return _store.cotizaciones; }
 function getStockMap()     { return _store.stockMap; }
+function getWooMap()       { return _store.wooMap; }
+function getWooOrders()    { return _store.wooOrders; }
+function getWooOrdersByRut(rut) {
+  const norm = String(rut || '').replace(/[^0-9]/g, '');
+  if (!norm) return [];
+  return _store.wooOrders.filter(o => o.rut === norm);
+}
 
-module.exports = { init, getClientesMap, getVentasRaw, getCotizaciones, getStockMap };
+module.exports = { init, getClientesMap, getVentasRaw, getCotizaciones, getStockMap, getWooMap, getWooOrders, getWooOrdersByRut };

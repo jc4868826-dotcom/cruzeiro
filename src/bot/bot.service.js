@@ -203,6 +203,19 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
   const mensajesPrevios = historialConv.length;
   const recienIdentificado = contextoCliente?.rut && mensajesPrevios > 2;
 
+  const _buildWooOrdersTexto = (wooOrders) => {
+    if (!Array.isArray(wooOrders) || !wooOrders.length) return null;
+    const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const recientes = wooOrders
+      .filter(o => !o.fecha || new Date(o.fecha).getTime() >= cutoff)
+      .slice(0, 3);
+    if (!recientes.length) return null;
+    return recientes.map(o => {
+      const items = o.items.slice(0, 3).map(i => `  - ${i.cantidad}x ${i.articulo} ($${Number(i.costo).toLocaleString('es-CL')} c/u)`).join('\n');
+      return `Pedido #${o.nroPedido} | ${o.estado} | ${o.fecha} | Total: $${Number(o.total).toLocaleString('es-CL')} | Envío: ${o.envio || '-'}\n${items}`;
+    }).join('\n\n');
+  };
+
   let clienteSeccion = '';
   if (contextoCliente?.rut && !contextoCliente.esEcommerce) {
     const ejNombreCtx = contextoCliente.ejecutivoNombre || 'nuestro equipo de ventas';
@@ -218,6 +231,7 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
     const cotizacionesTexto = Array.isArray(contextoCliente.cotizaciones) && contextoCliente.cotizaciones.length > 0
       ? contextoCliente.cotizaciones.join('\n')
       : null;
+    const wooTextoMay = _buildWooOrdersTexto(contextoCliente.wooOrders);
     clienteSeccion = `
 === CLIENTE MAYORISTA IDENTIFICADO ===
 Empresa: ${contextoCliente.empresa}
@@ -225,6 +239,7 @@ RUT: ${contextoCliente.rut}
 Ejecutivo asignado: ${ejNombreCtx}
 ${ejContacto ? `Contacto ejecutivo: ${ejContacto}` : ''}
 Pedidos activos: ${pedidosTexto}
+${wooTextoMay ? `\nPedidos online recientes (WooCommerce):\n${wooTextoMay}` : ''}
 ${cotizacionesTexto ? `\nCotizaciones anteriores del cliente:\n${cotizacionesTexto}\nINSTRUCCIÓN: Si el cliente pregunta por precio distinto al actual, muestra el precio cotizado y el precio actual y explica la diferencia. Si pregunta qué le cotizaron, muestra el SKU y descripción.` : ''}
 ${recienIdentificado ? '\nATENCIÓN: El cliente se identificó en medio de la conversación. Lee el historial completo y retoma exactamente desde donde estaban. NO repitas preguntas ya hechas.' : ''}
 ======================================
@@ -240,6 +255,10 @@ ${recienIdentificado ? '\nATENCIÓN: El cliente se identificó en medio de la co
     if (Array.isArray(contextoCliente.cotizaciones) && contextoCliente.cotizaciones.length > 0) {
       const cotizacionesTextoE = contextoCliente.cotizaciones.join('\n');
       seccionesCte.push(`=== COTIZACIONES DEL CLIENTE ===\n${cotizacionesTextoE}\nINSTRUCCIÓN: Si el cliente pregunta por precio distinto al actual, muestra el precio cotizado y el precio actual y explica la diferencia. Si pregunta qué le cotizaron, muestra el SKU y descripción.\n================================`);
+    }
+    const wooTextoEco = _buildWooOrdersTexto(contextoCliente.wooOrders);
+    if (wooTextoEco) {
+      seccionesCte.push(`=== PEDIDOS ONLINE RECIENTES (WOOCOMMERCE) ===\n${wooTextoEco}\nINSTRUCCIÓN: Usa esta información para responder consultas sobre estado de pedidos o compras online.\n==============================================`);
     }
     if (seccionesCte.length > 0) clienteSeccion = seccionesCte.join('\n\n') + '\n';
   }
@@ -683,7 +702,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── PASO 3: Construir contextoCliente ─────────────────────────────────────
   const mencionaCotizacion = /cotiz|me cotiz|cotización|lo que me cotiz|precio que me dier|me dieron precio|cuánto me cotiz/i.test(texto);
-  const mencionaPedido = /pedido|mi pedido|nota de venta|NV\s*\d|cuando llega|despacho|entrega|tracking/i.test(texto);
+  const mencionaPedido = /pedido|mi pedido|nota de venta|NV\s*\d|cuando llega|despacho|entrega|tracking|mi orden|mi compra|seguimiento|n[uú]mero de pedido|estado de mi/i.test(texto);
   let contextoCliente = null;
   if (estadoActual.rut && estadoActual.canal === 'mayorista') {
     const usuarioEj = estadoActual.ejecutivoAsignado
@@ -696,6 +715,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       ejecutivoFono:   usuarioEj?.fono   || null,
       ejecutivoEmail:  usuarioEj?.email  || null,
       pedidos:         datos.buscarPedidosPorRut(estadoActual.rut),
+      wooOrders:       mencionaPedido ? dataStore.getWooOrdersByRut(estadoActual.rut) : [],
     };
     if (mencionaCotizacion) {
       contextoCliente.cotizaciones = datos.buscarCotizacionesPorRut(estadoActual.rut)
@@ -705,6 +725,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   } else if (estadoActual.rut && (mencionaPedido || mencionaCotizacion)) {
     contextoCliente = { rut: estadoActual.rut, esEcommerce: true };
     if (mencionaPedido) contextoCliente.pedidos = datos.buscarPedidosPorRut(estadoActual.rut);
+    if (mencionaPedido) contextoCliente.wooOrders = dataStore.getWooOrdersByRut(estadoActual.rut);
     if (mencionaCotizacion) {
       contextoCliente.cotizaciones = datos.buscarCotizacionesPorRut(estadoActual.rut)
         .slice(0, 5)

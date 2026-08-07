@@ -25,7 +25,7 @@ async function init() {
   console.log(`[dataStore] Init: ${store.catalogo.length} productos | ${store.ventasMap.size} clientes | ${store.ventasRaw.length} filas ventas | ${store.usos.length} filas usos | ${store.pedidos.length} pedidos | ${store.ejecutivos.length} ejecutivos`);
   if (process.env.FTP_HOST) {
     await ftpLoader.init();
-    console.log(`[dataStore] FTP: ${ftpLoader.getClientesMap().size} clientes | ${ftpLoader.getVentasRaw().length} filas ventas | ${ftpLoader.getCotizaciones().length} cotizaciones | ${ftpLoader.getStockMap().size} SKUs stock`);
+    console.log(`[dataStore] FTP: ${ftpLoader.getClientesMap().size} clientes | ${ftpLoader.getVentasRaw().length} filas ventas | ${ftpLoader.getCotizaciones().length} cotizaciones | ${ftpLoader.getStockMap().size} SKUs stock | ${Object.keys(ftpLoader.getWooMap()).length} wooMap | ${ftpLoader.getWooOrders().length} pedidosWoo`);
   } else {
     console.warn('[dataStore] FTP_HOST no definido — datos FTP desactivados');
   }
@@ -57,8 +57,11 @@ function getVentasRaw()     { return store.ventasRaw; }
 function getUsos()          { return store.usos; }
 function getPedidos()       { return store.pedidos; }
 function getEjecutivos()    { return store.ejecutivos; }
-function getClientesFTP()   { return ftpLoader.getClientesMap(); }
-function getCotizacionesFTP(){ return ftpLoader.getCotizaciones(); }
-function getVentasFTPRaw()  { return ftpLoader.getVentasRaw(); }
+function getClientesFTP()        { return ftpLoader.getClientesMap(); }
+function getCotizacionesFTP()    { return ftpLoader.getCotizaciones(); }
+function getVentasFTPRaw()       { return ftpLoader.getVentasRaw(); }
+function getWooMap()             { return ftpLoader.getWooMap(); }
+function getWooOrders()          { return ftpLoader.getWooOrders(); }
+function getWooOrdersByRut(rut)  { return ftpLoader.getWooOrdersByRut(rut); }
 
-module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getClientesFTP, getCotizacionesFTP, getVentasFTPRaw };
+module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getClientesFTP, getCotizacionesFTP, getVentasFTPRaw, getWooMap, getWooOrders, getWooOrdersByRut };

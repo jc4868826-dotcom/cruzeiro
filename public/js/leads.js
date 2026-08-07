@@ -491,21 +491,35 @@ async function verLead(id) {
     </div>
 
     <!-- Pedidos (oculto) -->
-    <div id="lead-tab-pedidos" class="flex-1 overflow-y-auto p-6 hidden">
-      <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Notas de Venta</p>
-      ${lead.rut
-        ? `<div id="pedidos-container"><div class="text-sm text-slate-400 py-4">Cargando pedidos...</div></div>`
-        : `<div id="pedidos-container">
-             <p class="text-xs text-slate-400 mb-3">Este lead no tiene RUT registrado. Buscar por NV:</p>
-             <div class="flex gap-2">
-               <input id="pedidos-nv-input" type="text" placeholder="Número de nota de venta..."
-                 class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0d5c8c]">
-               <button onclick="buscarPedidoPorNV(document.getElementById('pedidos-nv-input').value)"
-                 class="bg-[#0d5c8c] hover:bg-[#0a4a73] text-white text-sm px-4 py-2 rounded-lg transition">Buscar</button>
-             </div>
-             <div id="pedidos-nv-result" class="mt-3"></div>
-           </div>`
-      }
+    <div id="lead-tab-pedidos" class="flex-1 overflow-y-auto p-6 hidden space-y-6">
+
+      <!-- Notas de Venta ERP -->
+      <div>
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Notas de Venta (ERP)</p>
+        ${lead.rut
+          ? `<div id="pedidos-container"><div class="text-sm text-slate-400 py-4">Cargando pedidos...</div></div>`
+          : `<div id="pedidos-container">
+               <p class="text-xs text-slate-400 mb-3">Este lead no tiene RUT registrado. Buscar por NV:</p>
+               <div class="flex gap-2">
+                 <input id="pedidos-nv-input" type="text" placeholder="Número de nota de venta..."
+                   class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0d5c8c]">
+                 <button onclick="buscarPedidoPorNV(document.getElementById('pedidos-nv-input').value)"
+                   class="bg-[#0d5c8c] hover:bg-[#0a4a73] text-white text-sm px-4 py-2 rounded-lg transition">Buscar</button>
+               </div>
+               <div id="pedidos-nv-result" class="mt-3"></div>
+             </div>`
+        }
+      </div>
+
+      <!-- Pedidos WooCommerce -->
+      <div>
+        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Pedidos Online (WooCommerce)</p>
+        ${lead.rut
+          ? `<div id="pedidos-woo-container"><div class="text-sm text-slate-400 py-4">Cargando pedidos online...</div></div>`
+          : `<div id="pedidos-woo-container"><p class="text-xs text-slate-400">Sin RUT — no se pueden buscar pedidos online.</p></div>`
+        }
+      </div>
+
     </div>
 
     <!-- Cotizaciones FTP (oculto) -->
@@ -520,6 +534,7 @@ async function verLead(id) {
 
   if (lead.rut) {
     cargarPedidosLead(lead.rut);
+    cargarPedidosWooLead(lead.id);
   }
 }
 
@@ -1020,6 +1035,91 @@ async function cargarPedidosLead(rut) {
     container.innerHTML = pedidosTablaHTML(Array.isArray(nvs) ? nvs : []);
   } catch (e) {
     container.innerHTML = `<p class="text-sm text-red-500">Error al cargar pedidos: ${escHtml(e.message)}</p>`;
+  }
+}
+
+function pedidosWooTablaHTML(pedidos) {
+  if (!pedidos || !pedidos.length) return '<p class="text-sm text-slate-400 py-4">No se encontraron pedidos online para este cliente.</p>';
+  const estadoBadgeWoo = e => {
+    const cfg = {
+      'Completado':  'bg-emerald-50 text-emerald-700 border-emerald-200',
+      'Procesando':  'bg-blue-50 text-blue-700 border-blue-200',
+      'Cancelado':   'bg-red-50 text-red-700 border-red-200',
+      'Pendiente':   'bg-yellow-50 text-yellow-700 border-yellow-200',
+    };
+    const cls = cfg[e] || 'bg-slate-100 text-slate-600 border-slate-200';
+    return `<span class="text-xs font-medium px-2 py-0.5 rounded-full border inline-block ${cls}">${escHtml(e || '—')}</span>`;
+  };
+  return `
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs border-collapse">
+        <thead>
+          <tr class="bg-slate-50 border-b border-slate-200">
+            <th class="text-left px-3 py-2 font-semibold text-slate-500">Nro Pedido</th>
+            <th class="text-left px-3 py-2 font-semibold text-slate-500">Fecha</th>
+            <th class="text-left px-3 py-2 font-semibold text-slate-500">Estado</th>
+            <th class="text-left px-3 py-2 font-semibold text-slate-500">Items</th>
+            <th class="text-right px-3 py-2 font-semibold text-slate-500">Total</th>
+            <th class="text-left px-3 py-2 font-semibold text-slate-500">Envío</th>
+            <th class="text-left px-3 py-2 font-semibold text-slate-500">Pago</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pedidos.map(p => `
+            <tr class="border-b border-slate-100 cursor-pointer hover:bg-slate-50" onclick="toggleWooItems(this)">
+              <td class="px-3 py-2 font-mono font-semibold text-[#0d5c8c]">#${escHtml(p.nroPedido)}</td>
+              <td class="px-3 py-2 text-slate-500">${p.fecha ? p.fecha.slice(0,10) : '—'}</td>
+              <td class="px-3 py-2">${estadoBadgeWoo(p.estado)}</td>
+              <td class="px-3 py-2 text-slate-500">${p.items ? p.items.length : 0} ítem(s)</td>
+              <td class="px-3 py-2 text-right font-semibold text-slate-700">$${Number(p.total||0).toLocaleString('es-CL')}</td>
+              <td class="px-3 py-2 text-slate-500 max-w-[140px] truncate">${escHtml(p.envio||'—')}</td>
+              <td class="px-3 py-2 text-slate-500">${escHtml(p.pago||'—')}</td>
+            </tr>
+            <tr class="woo-items-row hidden border-b border-slate-100 bg-slate-50">
+              <td colspan="7" class="px-6 py-3">
+                ${p.items && p.items.length ? `
+                  <table class="w-full text-xs">
+                    <thead><tr class="text-slate-400">
+                      <th class="text-left pb-1">SKU</th>
+                      <th class="text-left pb-1">Artículo</th>
+                      <th class="text-right pb-1">Cant.</th>
+                      <th class="text-right pb-1">Costo unit.</th>
+                    </tr></thead>
+                    <tbody>
+                      ${p.items.map(i => `
+                        <tr>
+                          <td class="font-mono text-[#0d5c8c] pr-3">${escHtml(i.sku)}</td>
+                          <td class="text-slate-600 pr-3">${escHtml(i.articulo)}</td>
+                          <td class="text-right pr-3">${i.cantidad}</td>
+                          <td class="text-right">$${Number(i.costo||0).toLocaleString('es-CL')}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                  </table>` : '<p class="text-slate-400">Sin ítems</p>'}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function toggleWooItems(tr) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('woo-items-row')) next.classList.toggle('hidden');
+}
+
+async function cargarPedidosWooLead(leadId) {
+  const container = document.getElementById('pedidos-woo-container');
+  if (!container) return;
+  try {
+    const res = await api.get(`/api/leads/${leadId}/pedidos-woo`);
+    const pedidos = Array.isArray(res.pedidos) ? res.pedidos : [];
+    container.innerHTML = pedidos.length
+      ? pedidosWooTablaHTML(pedidos)
+      : `<p class="text-sm text-slate-400 py-2">${escHtml(res.mensaje || 'Sin pedidos online encontrados.')}</p>`;
+  } catch (e) {
+    container.innerHTML = `<p class="text-sm text-red-500">Error al cargar pedidos WooCommerce: ${escHtml(e.message)}</p>`;
   }
 }
 
