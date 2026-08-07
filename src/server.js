@@ -25,6 +25,10 @@ async function bootstrap() {
     // 1. Seed initial data if collections are empty
     await seedIfEmpty();
 
+    // 1b. Migrate legacy leads: infer etapa_pipeline from conversation content
+    const { migrarEtapasLegacy } = require('./bot/bot.service');
+    await migrarEtapasLegacy();
+
     // 2. Start automatic backup cron (every 60 min)
     iniciarBackupAutomatico();
 

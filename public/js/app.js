@@ -181,6 +181,19 @@ function estadoBadge(estado) {
   return badge(estado, map[estado] || 'gray');
 }
 
+function etapaBadge(etapa) {
+  const cfgs = {
+    'nuevo':      ['Nuevo',      'gray'],
+    'calificado': ['Calificado', 'blue'],
+    'cotizado':   ['Cotizado',   'yellow'],
+    'ganado':     ['Ganado',     'green'],
+    'derivado':   ['Derivado',   'ocean'],
+    'perdido':    ['Perdido',    'red'],
+  };
+  const [label, color] = cfgs[etapa || 'nuevo'] || cfgs.nuevo;
+  return badge(label, color);
+}
+
 // ─── Role-based sidebar filtering ────────────────────────────────────────────
 function aplicarFiltroRol(rol) {
   if (!rol || rol === 'admin') return;

@@ -411,16 +411,12 @@ function renderCalidadRows(metrics, segmento) {
 // ─── Status del lead ──────────────────────────────────────────────────────────
 
 function _derivarStatusEcommerce(lead) {
-  const ep = lead.etapa_pipeline || '';
+  const ep = lead.etapa_pipeline || 'nuevo';
   const hasLink = !!lead.link_carrito_enviado;
-  if (hasLink || lead.calidad_lead === 'convertido' || ['ganado','cotizado','Cotizado','Cerrado','Pedido Enviado'].includes(ep)) {
-    return 'ganado';
-  }
-  if (lead.ejecutivo_asignado && (ep === 'derivado' || ep === 'Contactado')) return 'derivado';
-  const msgs = lead.mensajes_count || 0;
-  if (ep === 'calificado' || msgs > 2) return 'en_conversacion';
-  const horasSdeCreacion = (Date.now() - new Date(lead.createdAt).getTime()) / 3600000;
-  if (ep === 'perdido' || horasSdeCreacion > 48 || msgs <= 2) return 'abandonado';
+  if (hasLink || ep === 'ganado' || ep === 'cotizado') return 'ganado';
+  if (ep === 'derivado') return 'derivado';
+  if (ep === 'calificado' || (ep === 'nuevo' && (lead.mensajes_count || 0) > 2)) return 'en_conversacion';
+  if (ep === 'perdido' || (ep === 'nuevo' && (lead.mensajes_count || 0) <= 1)) return 'abandonado';
   return 'en_conversacion';
 }
 
@@ -432,19 +428,21 @@ function _derivarStatusMayorista(lead) {
   return 'identificado';
 }
 
-function generarDonutSVG(segments) {
-  const R = 36, cx = 50, cy = 50;
+function generarDonutSVG(segments, totalLeads) {
+  const R = 44, cx = 55, cy = 55;
   const C = 2 * Math.PI * R;
-  const total = segments.reduce((s, seg) => s + seg.n, 0) || 1;
+  const totalN = segments.reduce((s, seg) => s + seg.n, 0) || 1;
   let acc = 0;
   const circles = segments.filter(s => s.n > 0).map(({ n, color }) => {
-    const len = (n / total) * C;
-    const rotateDeg = (acc / total) * 360 - 90;
+    const len = (n / totalN) * C;
+    const rotateDeg = (acc / totalN) * 360 - 90;
     acc += n;
-    return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="15" stroke-dasharray="${len.toFixed(1)} ${(C - len).toFixed(1)}" transform="rotate(${rotateDeg.toFixed(1)} ${cx} ${cy})"/>`;
+    return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${color}" stroke-width="18" stroke-dasharray="${len.toFixed(1)} ${(C - len).toFixed(1)}" transform="rotate(${rotateDeg.toFixed(1)} ${cx} ${cy})"/>`;
   });
-  if (!circles.length) circles.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#e2e8f0" stroke-width="15"/>`);
-  return `<svg viewBox="0 0 100 100" width="80" height="80">${circles.join('')}<circle cx="${cx}" cy="${cy}" r="22" fill="white"/></svg>`;
+  if (!circles.length) circles.push(`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#e2e8f0" stroke-width="18"/>`);
+  const n = totalLeads !== undefined ? totalLeads : totalN;
+  const centerText = `<text x="${cx}" y="${cy - 5}" text-anchor="middle" font-size="18" font-weight="700" fill="#1e293b">${n}</text><text x="${cx}" y="${cy + 11}" text-anchor="middle" font-size="9" fill="#94a3b8">leads</text>`;
+  return `<svg viewBox="0 0 110 110" width="110" height="110">${circles.join('')}<circle cx="${cx}" cy="${cy}" r="30" fill="white"/>${centerText}</svg>`;
 }
 
 function renderStatusRows(leads, segmento) {
@@ -493,7 +491,11 @@ function renderStatusRows(leads, segmento) {
 
   const segments = rows.map(r => ({ n: counts[r.key] || 0, color: r.color }));
 
-  return `<div class="flex items-start gap-2"><div class="flex-1">${cards}</div><div class="shrink-0 mt-1">${generarDonutSVG(segments)}</div></div>`;
+  return `
+    <div class="flex flex-col items-center gap-2">
+      <div>${generarDonutSVG(segments, leads.length)}</div>
+      <div class="w-full">${cards}</div>
+    </div>`;
 }
 
 // ─── Familias de catálogo (Qué buscan) ───────────────────────────────────────

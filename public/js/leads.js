@@ -198,6 +198,7 @@ function renderLeadsList(leads) {
         <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
           ${segPill}
           <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full ${calidad.css}">${calidad.label}</span>
+          ${l.etapa_pipeline && l.etapa_pipeline !== 'nuevo' ? etapaBadge(l.etapa_pipeline) : ''}
           ${motivoTxt ? `<span class="text-[10px] text-slate-400 truncate">${escHtml(motivoTxt)}</span>` : ''}
         </div>
       </div>
@@ -247,6 +248,7 @@ async function verLead(id) {
       </div>
       <div class="flex items-center gap-3 flex-wrap">
         <span id="lead-estado-badge">${estadoBadge(lead.estado)}</span>
+        <span id="lead-etapa-badge">${etapaBadge(lead.etapa_pipeline)}</span>
         <label class="flex items-center gap-2 cursor-pointer">
           <span class="text-xs text-slate-500">Bot</span>
           <div class="relative" onclick="toggleBot('${lead.id}', !${!!lead.bot_activo})">

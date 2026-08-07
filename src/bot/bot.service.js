@@ -427,6 +427,93 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
   }
 }
 
+// ─── Pipeline stage helpers ───────────────────────────────────────────────────
+
+const _ETAPA_ORDEN = ['nuevo', 'calificado', 'cotizado', 'derivado', 'ganado'];
+
+function _avanzarEtapa(leadUpdate, leadExistente, nuevaEtapa) {
+  const actual = leadUpdate.etapa_pipeline || leadExistente?.etapa_pipeline || 'nuevo';
+  if (actual === 'ganado') return;
+  if (nuevaEtapa === 'perdido') {
+    if (actual !== 'ganado') leadUpdate.etapa_pipeline = 'perdido';
+    return;
+  }
+  const idxActual = _ETAPA_ORDEN.indexOf(actual);
+  const idxNueva  = _ETAPA_ORDEN.indexOf(nuevaEtapa);
+  if (idxNueva > idxActual) leadUpdate.etapa_pipeline = nuevaEtapa;
+}
+
+function _detectarEventosPipeline(texto, respuesta, leadUpdate, leadExistente, estadoActual) {
+  const _CALIDAD = ['bajo', 'medio', 'alto', 'convertido'];
+
+  // Abandono explícito del cliente
+  if (/\b(no gracias|no me interesa|ya compr[eé]|no necesito|d[eé]jalo|no por ahora|no quiero)\b/i.test(texto)) {
+    _avanzarEtapa(leadUpdate, leadExistente, 'perdido');
+    return;
+  }
+
+  const tieneCarrito = respuesta.includes('cruzeirogomas.cl/carrito');
+  const tieneSku     = /\bSKU[:\s]+[A-Z0-9]/i.test(respuesta);
+  const tienePrecio  = /\$\s*\d[\d.,]*/.test(respuesta);
+  const asignoEjec   = !!(leadUpdate.ejecutivo_asignado);
+  const identificoRut = !!(leadUpdate.rut);
+
+  if (tieneCarrito) {
+    leadUpdate.link_carrito_enviado = true;
+    _avanzarEtapa(leadUpdate, leadExistente, 'ganado');
+  } else if (asignoEjec) {
+    _avanzarEtapa(leadUpdate, leadExistente, 'derivado');
+  } else if (tieneSku || tienePrecio) {
+    _avanzarEtapa(leadUpdate, leadExistente, 'calificado');
+    const calActual = leadExistente?.calidad_lead || leadUpdate.calidad_lead || 'bajo';
+    if (_CALIDAD.indexOf(calActual) < _CALIDAD.indexOf('alto') &&
+        (!leadUpdate.calidad_lead || _CALIDAD.indexOf(leadUpdate.calidad_lead) < _CALIDAD.indexOf('alto'))) {
+      leadUpdate.calidad_lead = 'alto';
+    }
+  } else if (identificoRut) {
+    _avanzarEtapa(leadUpdate, leadExistente, 'calificado');
+  }
+}
+
+// ─── Migración de etapas para leads legacy (llamar al arrancar) ───────────────
+
+async function migrarEtapasLegacy() {
+  try {
+    const leads = await db.getAll('leads');
+    const todasConvs = await db.getAll('conversaciones');
+    let actualizados = 0;
+    for (const lead of leads) {
+      const etapaActual = lead.etapa_pipeline || 'nuevo';
+      if (etapaActual !== 'nuevo' && etapaActual !== 'Contactado') continue;
+      const convs = todasConvs.filter(c => c.lead_id === lead.id);
+      const mensajes = convs.flatMap(c => c.mensajes || []);
+      if (mensajes.length <= 3 && !lead.ejecutivo_asignado && !lead.link_carrito_enviado) continue;
+
+      let nuevaEtapa = 'nuevo';
+      if (lead.link_carrito_enviado === true) {
+        nuevaEtapa = 'ganado';
+      } else if (lead.ejecutivo_asignado || etapaActual === 'Contactado') {
+        nuevaEtapa = 'derivado';
+      } else {
+        const msgsBot = mensajes.filter(m => m.rol === 'bot');
+        const botMostroSku    = msgsBot.some(m => /\bSKU[:\s]+[A-Z0-9]/i.test(m.texto));
+        const botMostroPrecio = msgsBot.some(m => /\$\s*\d[\d.,]*/.test(m.texto));
+        if (botMostroSku || botMostroPrecio || lead.calidad_lead === 'alto' || lead.calidad_lead === 'convertido') {
+          nuevaEtapa = 'calificado';
+        }
+      }
+
+      if (nuevaEtapa !== etapaActual) {
+        await db.update('leads', lead.id, { etapa_pipeline: nuevaEtapa });
+        actualizados++;
+      }
+    }
+    if (actualizados > 0) console.log(`[bot] Migración etapas: ${actualizados} leads actualizados.`);
+  } catch (e) {
+    console.error('[bot] Error en migración de etapas:', e.message);
+  }
+}
+
 // ─── Main processor ───────────────────────────────────────────────────────────
 
 async function procesarMensaje(phone, texto, conversacionExistente = null, opciones = {}) {
@@ -600,7 +687,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     if (!estadoActual.alertaMayoristaEnviada) {
       await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, historialConv);
       setEstado(phone, { alertaMayoristaEnviada: true });
-      leadUpdate.etapa_pipeline = 'Contactado';
+      leadUpdate.etapa_pipeline = 'derivado';
       leadUpdate.ejecutivo_asignado = estadoActual.ejecutivoAsignado;
       respuestaMayorista = `Hola, ${empresa}. Tu ejecutivo ${ejNombre} ya fue notificado y te contactará a la brevedad.${ejFono ? ` Si necesitas algo urgente puedes escribirle directamente al ${ejFono}.` : ''}`;
     } else {
@@ -631,10 +718,10 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     const clienteAfirma = /\b(sí|si|claro|dale|ok|bueno|perfecto|que me llame|por favor|porfa|afirmativo|adelante|va)\b/i.test(texto.toLowerCase());
     if (botOfrecioContacto && clienteAfirma) {
       await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, historialConv);
-      leadUpdate.etapa_pipeline = 'Contactado';
+      leadUpdate.etapa_pipeline = 'derivado';
       if (conversacionExistente?.lead_id) {
         await db.update('leads', conversacionExistente.lead_id, {
-          etapa_pipeline: 'Contactado',
+          etapa_pipeline: 'derivado',
           ejecutivo_asignado: estadoActual.ejecutivoAsignado,
         });
       }
@@ -752,11 +839,14 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       if (_fam && !_JUNK_FAM.has(_fam)) leadUpdate.familia_interes = _fam;
     }
 
+    // Avanzar etapa_pipeline según eventos detectados en este turno
+    _detectarEventosPipeline(texto, respuesta, leadUpdate, leadExistente, estadoActual);
+
     const _CALIDAD_ORDEN = ['bajo', 'medio', 'alto', 'convertido'];
     const _canalCalidad = estadoActual.canal || conversacionExistente?.canal || 'ecommerce';
     let _calidadCalc = 'bajo';
     if (_canalCalidad === 'mayorista') {
-      if (leadUpdate.etapa_pipeline === 'Contactado') {
+      if (leadUpdate.etapa_pipeline === 'derivado') {
         _calidadCalc = 'convertido';
       } else if (estadoActual.rut || leadExistente?.rut) {
         _calidadCalc = 'alto';
@@ -766,7 +856,8 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     } else {
       if (
         respuesta.includes('cruzeirogomas.cl/carrito') ||
-        leadUpdate.etapa_pipeline === 'Contactado' ||
+        leadUpdate.etapa_pipeline === 'derivado' ||
+        leadUpdate.etapa_pipeline === 'ganado' ||
         /quiero comprar|confirmo|procedo|lo compro|págalo|pagar ahora/i.test(texto) ||
         /cotización formal|quiero cotizar|me mandan cotización|necesito cotización formal/i.test(texto)
       ) {
@@ -869,4 +960,4 @@ function _extraerProductoPrevio(historial) {
   return null;
 }
 
-module.exports = { detectarIntencion, procesarMensaje, resetEstado };
+module.exports = { detectarIntencion, procesarMensaje, resetEstado, migrarEtapasLegacy };
