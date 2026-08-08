@@ -235,6 +235,32 @@ function _buscarEnUsos(termino, tokens) {
 function _buscarPorFamilia(familia, canal) {
   if (!familia) return [];
   const famNorm = _norm(familia);
+
+  if (canal !== 'mayorista') {
+    const webItems = dataStore.getWebProductos()
+      .filter(p => {
+        const precio = Number(p.precio || 0);
+        if (precio <= 1) return false;
+        return [p.subcategoria || '', p.categoria || '', p.nombreWeb || ''].some(f => {
+          const fn = _norm(f);
+          return fn && (fn.includes(famNorm) || famNorm.includes(fn));
+        });
+      })
+      .slice(0, 10)
+      .map(p => ({
+        sku:              p.sku || '',
+        descripcion:      p.nombreWeb || '',
+        descripcionCorta: p.descripcionCorta || '',
+        precio_web:       Number(p.precio || 0),
+        precio_mayorista: 0,
+        familia:          p.subcategoria || '',
+        categoria:        p.categoria || '',
+        unidad:           'C/U',
+        imagen:           p.urlImagen || '',
+      }));
+    if (webItems.length > 0) return webItems;
+  }
+
   return dataStore.getCatalogo()
     .filter(p => {
       const precio = canal === 'mayorista' ? p.precio_mayorista : p.precio_web;
@@ -267,12 +293,25 @@ function _buscarTextoLibre(tokens, fuente, canal) {
 
   if (!scored.length) return [];
 
-  // Mapear de vuelta al formato catalogo para compatibilidad con agruparVariantes
+  if (fuente === 'web') {
+    return scored.map(p => ({
+      sku:              p.sku || '',
+      descripcion:      p.nombreWeb || '',
+      descripcionCorta: p.descripcionCorta || '',
+      precio_web:       Number(p.precio || 0),
+      precio_mayorista: 0,
+      familia:          p.subcategoria || '',
+      categoria:        p.categoria || '',
+      unidad:           'C/U',
+      imagen:           p.urlImagen || '',
+    })).filter(p => p.precio_web > 1);
+  }
+
+  // Maestra: cross-filter normal
   const skus = new Set(scored.map(p => p.sku));
   return dataStore.getCatalogo().filter(p => {
     if (!skus.has(p.sku)) return false;
-    const precio = canal === 'mayorista' ? p.precio_mayorista : p.precio_web;
-    return precio && precio > 1;
+    return p.precio_mayorista && p.precio_mayorista > 1;
   });
 }
 
