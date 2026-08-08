@@ -148,12 +148,63 @@ function resolverEjecutivo(vendedor) {
   return null;
 }
 
+// ─── Clasificación por RUT: dos búsquedas FTP ────────────────────────────────
+// Retorna { canal, tipo, cliente, razonSocial, ejecutivo }
+// tipo: 'nuevo' (no en Clientes.csv) | 'inactivo' (sin ventas 180d) | 'activo' (tiene ventas)
+
+function clasificarPorRut(rutRaw) {
+  const rutDigitos = String(rutRaw).replace(/\D/g, '');
+  if (!rutDigitos) return { canal: 'ecommerce', tipo: 'nuevo', cliente: null };
+
+  // BÚSQUEDA 1: Clientes.csv (FTP clientesMap)
+  const ftpMap = dataStore.getClientesFTP();
+  let clienteRaw = null;
+  if (ftpMap.has(rutDigitos)) {
+    clienteRaw = ftpMap.get(rutDigitos);
+  } else {
+    for (const [k, v] of ftpMap) {
+      if (rutDigitos.startsWith(k) || k.startsWith(rutDigitos)) { clienteRaw = v; break; }
+    }
+  }
+  if (!clienteRaw) return { canal: 'ecommerce', tipo: 'nuevo', cliente: null };
+
+  // BÚSQUEDA 2: Ventas_OR.csv — últimos 180 días
+  const fuente = dataStore.getVentasFTPRaw().length
+    ? dataStore.getVentasFTPRaw()
+    : dataStore.getVentasRaw();
+  const limite = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+  const tieneCompraReciente = fuente.some(v => {
+    const rutV = String(v.rut || v.Rut || '').replace(/\D/g, '');
+    if (rutV !== rutDigitos) return false;
+    const fecha = _parseFechaEmision(v.fechaEmision || v.FechaEmision);
+    return fecha && fecha >= limite;
+  });
+
+  if (tieneCompraReciente) {
+    return {
+      canal: 'mayorista',
+      tipo: 'activo',
+      cliente: clienteRaw,
+      razonSocial: clienteRaw.razonSocial || '',
+      ejecutivo: clienteRaw.vendedor || '',
+    };
+  }
+  return {
+    canal: 'ecommerce',
+    tipo: 'inactivo',
+    cliente: clienteRaw,
+    razonSocial: clienteRaw.razonSocial || '',
+    ejecutivo: clienteRaw.vendedor || '',
+  };
+}
+
 module.exports = {
   buscarClientePorRut,
   buscarCotizacionesPorRut,
   buscarEjecutivo,
   buscarPedidosPorRut,
   resolverEjecutivo,
+  clasificarPorRut,
   getTodosCatalogo,
   cargarTodosEjecutivos,
   cargarClientes,

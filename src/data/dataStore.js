@@ -59,9 +59,10 @@ function getPedidos()       { return store.pedidos; }
 function getEjecutivos()    { return store.ejecutivos; }
 function getClientesFTP()        { return ftpLoader.getClientesMap(); }
 function getCotizacionesFTP()    { return ftpLoader.getCotizaciones(); }
+function getCotizaciones()       { return ftpLoader.getCotizaciones(); }
 function getVentasFTPRaw()       { return ftpLoader.getVentasRaw(); }
 function getWooMap()             { return ftpLoader.getWooMap(); }
 function getWooOrders()          { return ftpLoader.getWooOrders(); }
 function getWooOrdersByRut(rut)  { return ftpLoader.getWooOrdersByRut(rut); }
 
-module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getClientesFTP, getCotizacionesFTP, getVentasFTPRaw, getWooMap, getWooOrders, getWooOrdersByRut };
+module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getClientesFTP, getCotizacionesFTP, getCotizaciones, getVentasFTPRaw, getWooMap, getWooOrders, getWooOrdersByRut };

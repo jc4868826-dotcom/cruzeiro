@@ -311,12 +311,13 @@ NUNCA muestres precio antes de saber la cantidad.
 
 PASO 6 — PRESENTAR (solo después de tener la cantidad):
 Con la cantidad confirmada, muestra 2-3 opciones del catálogo.
-Muestra SOLO nombre y precio de cada opción — sin SKU todavía.
+Muestra SOLO nombre y precio — nunca el SKU al cliente.
 Si el catálogo tiene variante por rollo Y por metro, presenta AMBAS y explica la diferencia.
 
-PASO 7 — CONFIRMAR ELECCIÓN Y DAR SKU:
-Cuando el cliente elige una opción, entrega el SKU exacto y el precio final con cantidad.
-Ejemplo: "Perfecto. Son 48 unidades del Pastelón Caucho Negro 25mm 50x50cm, SKU I272PASN2550, a $6.990 c/u = $335.520 total."
+PASO 7 — CONFIRMAR ELECCIÓN:
+Cuando el cliente elige una opción, confirma con nombre del producto, precio unitario y total calculado.
+Ejemplo: "Perfecto. Son 48 unidades del Pastelón Caucho Negro 25mm 50x50cm, a $6.990 c/u = $335.520 total."
+No incluyas el SKU en el mensaje — el sistema lo gestiona internamente para el carrito.
 
 PASO 8 — COMPLEMENTOS PROACTIVOS:
 Solo ofrece un complemento si cumple LAS DOS condiciones:
@@ -415,6 +416,16 @@ Si el cliente menciona: cotización formal, proyecto, volumen grande, instalaci�
 CONOCIMIENTO TÉCNICO
 ═══════════════════════════════════
 ${conocimientoTexto || 'Usa tu conocimiento general sobre gomas y cauchos.'}
+
+═══════════════════════════════════
+COMPLEMENTOS Y CROSS-SELL
+═══════════════════════════════════
+Cuando el cliente pide un producto complementario o accesorio, PRIMERO busca ese complemento en el conocimiento técnico (sección CONOCIMIENTO TÉCNICO arriba) para identificar la familia correcta en el catálogo. LUEGO busca en el catálogo con esa familia. SOLO presenta opciones que existan en el catálogo con precio real. NUNCA inventes un complemento ni sus características. Si no lo encuentras en el catálogo → díselo al cliente honestamente.
+
+═══════════════════════════════════
+PRESENTACIÓN DE PRODUCTOS
+═══════════════════════════════════
+Al presentar opciones al cliente muestra SOLO: nombre del producto y precio. El SKU es información interna del sistema — NUNCA lo incluyas en el mensaje al cliente. El cliente no necesita el SKU para comprar. Cuando llegues al PASO 9 (cierre), dirige al cliente al carrito con el link generado.
 
 ═══════════════════════════════════
 CATÁLOGO DE PRODUCTOS DISPONIBLES
@@ -650,32 +661,31 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       const rutExtraido = extraerRut(texto);
       if (rutExtraido) {
         const rutNorm = normalizarRut(rutExtraido);
-        const cliente = datos.buscarClientePorRut(rutExtraido);
-        if (cliente) {
-          const vendedorActual = cliente.vendedor_actual || '';
-          let ejecutivoUsername = datos.resolverEjecutivo(vendedorActual);
-          const ejecutivoNombre = ejecutivoUsername ? (datos.buscarEjecutivo(ejecutivoUsername)?.nombre || null) : null;
-          // FIX 3: usar esMayoristaActivo (calculado por ftpLoader) en lugar de campo canal del Excel
-          const canalCliente = cliente.esMayoristaActivo === true ? 'mayorista' : 'ecommerce';
+        const resultado = datos.clasificarPorRut(rutExtraido);
+        if (resultado.tipo !== 'nuevo') {
+          // Cliente encontrado en Clientes.csv (activo o inactivo)
+          const ejecutivoUsername = datos.resolverEjecutivo(resultado.ejecutivo);
+          const ejecutivoNombre = ejecutivoUsername
+            ? (datos.buscarEjecutivo(ejecutivoUsername)?.nombre || null) : null;
           setEstado(phone, {
             etapa: 'activo',
-            canal: canalCliente,
+            canal: resultado.canal,
             rut: rutNorm,
             ejecutivoAsignado: ejecutivoUsername,
-            clienteNombre: cliente.nombre || null,
+            clienteNombre: resultado.razonSocial || null,
+            tipoCliente: resultado.tipo,
           });
-          leadUpdate.nombre = cliente.nombre || '';
-          leadUpdate.empresa = cliente.nombre || '';
+          leadUpdate.nombre = resultado.razonSocial || '';
+          leadUpdate.empresa = resultado.razonSocial || '';
           leadUpdate.rut = rutNorm;
-          leadUpdate.segmento = canalCliente;
-          leadUpdate.canal = canalCliente;
+          leadUpdate.segmento = resultado.canal;
+          leadUpdate.canal = resultado.canal;
           leadUpdate.ejecutivo_asignado = ejecutivoUsername || null;
           leadUpdate.ejecutivo_nombre = ejecutivoNombre || ejecutivoUsername || '';
-          if (cliente.direccion) leadUpdate.direccion = cliente.direccion;
-          if (cliente.ciudad)    leadUpdate.ciudad    = cliente.ciudad;
-          if (cliente.fono)      leadUpdate.fono      = cliente.fono;
-          if (cliente.email)     leadUpdate.email     = cliente.email;
-          if (cliente.ultima_venta) leadUpdate.ultima_compra = cliente.ultima_venta;
+          leadUpdate.tipo_cliente = resultado.tipo;
+          if (resultado.cliente?.email)   leadUpdate.email = resultado.cliente.email;
+          if (resultado.cliente?.celular) leadUpdate.fono  = resultado.cliente.celular;
+          if (resultado.cliente?.giro)    leadUpdate.giro  = resultado.cliente.giro;
         } else {
           // RUT no encontrado — manejar reintentos
           const intentosPrevios = estado.intentos_rut_fallidos || 0;
@@ -761,33 +771,20 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
-  // ── MODO SILENCIOSO MAYORISTA — solo primer contacto ────────────────────
-  if (estadoActual.rut && estadoActual.canal === 'mayorista' && !estadoActual.alertaMayoristaEnviada && contextoCliente) {
-    const ejNombre = contextoCliente.ejecutivoNombre || 'nuestro ejecutivo de ventas';
-    const ejFono   = contextoCliente.ejecutivoFono   || null;
-    const empresa  = contextoCliente.empresa || estadoActual.clienteNombre || 'Cliente';
+  // ── CAMBIO 5: Pedido mencionado sin RUT → pedir RUT directamente ─────────
+  const TRIGGERS_PEDIDO_WOO = /pedido|cu[aá]ndo llega|estado.*compra|n[uú]mero.*pedido|nro.*pedido|seguimiento/i;
+  if (TRIGGERS_PEDIDO_WOO.test(texto) && !estadoActual.rut) {
+    const rPedido = 'Para consultar el estado de tu pedido necesito tu RUT. ¿Me lo puedes dar?';
+    const convP = await _guardarMensajes(phone, texto, rPedido, conversacionExistente, canal_tipo);
+    return { respuesta: rPedido, derivar: false, conversacion: convP, leadUpdate, estado: getEstado(phone) };
+  }
 
-    await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, historialConv);
-    setEstado(phone, { alertaMayoristaEnviada: true });
-    leadUpdate.etapa_pipeline = 'derivado';
-    leadUpdate.ejecutivo_asignado = estadoActual.ejecutivoAsignado;
-    const respuestaMayorista = `Hola, ${empresa}. Tu ejecutivo ${ejNombre} ya fue notificado y te contactará a la brevedad.${ejFono ? ` Si necesitas algo urgente puedes escribirle directamente al ${ejFono}.` : ''}`;
-
-    const conversacionM = await _guardarMensajes(phone, texto, respuestaMayorista, conversacionExistente, canal_tipo);
-    try {
-      const todosLeadsM = await db.getAll('leads');
-      const leadExistenteM = todosLeadsM.find(l => l.rut === estadoActual.rut) || null;
-      const leadIdM = leadExistenteM?.id || conversacionM?.lead_id;
-      if (leadIdM && Object.keys(leadUpdate).length > 0) {
-        await db.update('leads', leadIdM, leadUpdate);
-      }
-      if (conversacionM?.id && !conversacionM.lead_id && leadIdM) {
-        await db.update('conversaciones', conversacionM.id, { lead_id: leadIdM });
-      }
-    } catch (e) {
-      console.error('[bot] Error grabando lead mayorista:', e.message);
-    }
-    return { respuesta: respuestaMayorista, derivar: false, conversacion: conversacionM, leadUpdate, estado: getEstado(phone) };
+  // ── CAMBIO 6: Cotización mencionada sin RUT → pedir RUT directamente ─────
+  const TRIGGERS_COTIZ_RAMA = /cotizaci[oó]n|presupuesto|cotizaron|me.*cotiz|tienen.*precio.*de|me.*mandaron.*precio/i;
+  if (TRIGGERS_COTIZ_RAMA.test(texto) && !estadoActual.rut) {
+    const rCotiz = 'Para consultar tus cotizaciones necesito tu RUT. ¿Me lo puedes dar?';
+    const convC = await _guardarMensajes(phone, texto, rCotiz, conversacionExistente, canal_tipo);
+    return { respuesta: rCotiz, derivar: false, conversacion: convC, leadUpdate, estado: getEstado(phone) };
   }
 
   // ── PASO 4: Detección silenciosa de afirmación de contacto ───────────────
@@ -866,6 +863,8 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     identificacionHint = '';
   } else if (estadoActual.intentos_rut_fallidos === 1) {
     identificacionHint = '';
+  } else if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
+    identificacionHint = 'El cliente está registrado en el sistema pero sin compras recientes. Salúdalo con: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?" y atiéndelo como cliente ecommerce.';
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización anterior. Pídele el RUT para buscarla en el sistema.';
   } else if (!estadoActual.rut && historialConv.length < 4) {
