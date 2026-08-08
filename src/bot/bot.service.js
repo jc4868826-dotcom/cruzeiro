@@ -271,8 +271,10 @@ FLUJO DE CONVERSACIÓN — OBLIGATORIO
 Sigue estos pasos EN ORDEN. No te saltes ninguno.
 ═══════════════════════════════════
 
-PASO 0 — SALUDO (solo si el historial está vacío):
-"¡Hola! Bienvenido a Cruzeiro 😊 Somos especialistas en gomas, cauchos, pisos, seguridad vial y mucho más. ¿En qué te puedo ayudar hoy?"
+PASO 0 — SALUDO (solo si el historial está vacío Y el mensaje es únicamente un saludo sin consulta específica):
+Si el primer mensaje es solo un saludo sin intención concreta (ej: "hola", "buenas tardes", "buenos días"):
+→ "¡Hola! Bienvenido a Cruzeiro 😊 Somos especialistas en gomas, cauchos, pisos, seguridad vial y mucho más. ¿En qué te puedo ayudar hoy?"
+Si el primer mensaje ya incluye una consulta de producto, precio, pedido u otra intención específica → OMITE el PASO 0 y responde directamente desde el paso que corresponda a esa intención.
 
 PASO 1 — EL CLIENTE MENCIONA LO QUE BUSCA:
 Pregunta: "¿Ya eres cliente de Cruzeiro?"
@@ -347,6 +349,8 @@ Cuando el cliente pide un producto complementario (bolsas, adhesivos, complement
 2. Presenta máximo 3 opciones reales con SKU, precio y descripción del catálogo
 3. Solo cuando el cliente elige, construye el link del carrito
 NUNCA describas características de un complemento sin haberlo encontrado en el catálogo con SKU y precio válidos.
+
+⚠️ REGLA SIN EXCEPCIONES: NUNCA inventes un SKU. Jamás. Un SKU inventado (ej: A123ADH1LT, PEGAS2, etc.) es información falsa — el cliente no puede comprarlo y destruye la confianza. Si no ves el SKU exacto en el catálogo disponible arriba, NO lo menciones. Di "no lo tengo en catálogo" antes que inventar uno.
 
 ═══════════════════════════════════
 REGLAS ABSOLUTAS — LEE ANTES DE CADA RESPUESTA
@@ -505,7 +509,7 @@ function _detectarEventosPipeline(texto, respuesta, leadUpdate, leadExistente, e
   const tieneCarrito = respuesta.includes('cruzeirogomas.cl/carrito');
   const tieneSku     = /\bSKU[:\s]+[A-Z0-9]/i.test(respuesta);
   const tienePrecio  = /\$\s*\d[\d.,]*/.test(respuesta);
-  const asignoEjec   = !!(leadUpdate.ejecutivo_asignado);
+  const asignoEjec   = !!(leadUpdate.ejecutivo_asignado) && estadoActual?.canal === 'mayorista';
   const identificoRut = !!(leadUpdate.rut);
 
   if (tieneCarrito) {
@@ -535,7 +539,6 @@ function inferirEtapaPipeline(leadUpdate, etapaActual) {
     return idxNueva > idxActual ? leadUpdate.etapa_pipeline : (etapaActual || 'nuevo');
   }
   if (leadUpdate.link_carrito_enviado) return 'ganado';
-  if (leadUpdate.ejecutivo_asignado)   return 'derivado';
   if (leadUpdate.rut || leadUpdate.familia_interes ||
       leadUpdate.calidad_lead === 'alto' || leadUpdate.calidad_lead === 'convertido') {
     const idx = orden.indexOf(etapaActual || 'nuevo');
@@ -756,22 +759,17 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
-  // ── MODO SILENCIOSO MAYORISTA ─────────────────────────────────────────────
-  if (estadoActual.rut && estadoActual.canal === 'mayorista' && contextoCliente) {
+  // ── MODO SILENCIOSO MAYORISTA — solo primer contacto ────────────────────
+  if (estadoActual.rut && estadoActual.canal === 'mayorista' && !estadoActual.alertaMayoristaEnviada && contextoCliente) {
     const ejNombre = contextoCliente.ejecutivoNombre || 'nuestro ejecutivo de ventas';
     const ejFono   = contextoCliente.ejecutivoFono   || null;
     const empresa  = contextoCliente.empresa || estadoActual.clienteNombre || 'Cliente';
 
-    let respuestaMayorista;
-    if (!estadoActual.alertaMayoristaEnviada) {
-      await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, historialConv);
-      setEstado(phone, { alertaMayoristaEnviada: true });
-      leadUpdate.etapa_pipeline = 'derivado';
-      leadUpdate.ejecutivo_asignado = estadoActual.ejecutivoAsignado;
-      respuestaMayorista = `Hola, ${empresa}. Tu ejecutivo ${ejNombre} ya fue notificado y te contactará a la brevedad.${ejFono ? ` Si necesitas algo urgente puedes escribirle directamente al ${ejFono}.` : ''}`;
-    } else {
-      respuestaMayorista = `Tu ejecutivo ${ejNombre} ya fue notificado. Quedamos atentos.`;
-    }
+    await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, historialConv);
+    setEstado(phone, { alertaMayoristaEnviada: true });
+    leadUpdate.etapa_pipeline = 'derivado';
+    leadUpdate.ejecutivo_asignado = estadoActual.ejecutivoAsignado;
+    const respuestaMayorista = `Hola, ${empresa}. Tu ejecutivo ${ejNombre} ya fue notificado y te contactará a la brevedad.${ejFono ? ` Si necesitas algo urgente puedes escribirle directamente al ${ejFono}.` : ''}`;
 
     const conversacionM = await _guardarMensajes(phone, texto, respuestaMayorista, conversacionExistente, canal_tipo);
     try {
