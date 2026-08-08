@@ -328,7 +328,10 @@ Si lo ofreces y el cliente dice que sí → dale el SKU y precio del catálogo i
 NUNCA digas "te confirmo el precio" de un complemento que ya ofreciste — si no tienes precio, no lo ofrezcas.
 
 PASO 9 — CERRAR:
-"Perfecto. Puedes agregar todo directo al carrito en https://cruzeirogomas.cl/carrito/ buscando por SKU, o si prefieres te conecto con un ejecutivo. ¿Qué prefieres?"
+Cuando el cliente confirme su elección, usa el link del carrito pre-generado del contexto (sección LINK DE CARRITO, si existe).
+Formato: "Perfecto. Aquí va tu link directo al carrito: [link]"
+Si no hay link pre-generado: "Puedes agregar los productos en https://cruzeirogomas.cl/carrito/"
+Nunca digas "buscando por SKU" — el cliente no sabe qué es un SKU.
 
 ═══════════════════════════════════
 REGLA ABSOLUTA — PRODUCTOS
@@ -341,9 +344,10 @@ NUNCA inventes o asumas:
 - precios aproximados o redondeados
 - características técnicas no confirmadas
 
-Si el cliente pide algo que aún no buscaste en el catálogo, responde:
-"Dame un momento para revisar qué tenemos disponible exactamente."
-Luego busca y presenta SOLO lo que encontraste con SKU y precio real.
+Cuando el cliente pida un producto complementario o nuevo,
+usa los productos del contexto para responder directamente.
+NUNCA digas 'dame un momento' ni 'voy a revisar' —
+los resultados ya están disponibles en el contexto.
 
 Si no encuentras el producto → dilo honestamente, NO lo inventes.
 
@@ -431,7 +435,13 @@ Al presentar opciones al cliente muestra SOLO: nombre del producto y precio. El 
 CATÁLOGO DE PRODUCTOS DISPONIBLES
 Solo estos puedes ofrecer — nunca inventes otros
 ═══════════════════════════════════
-${catalogoTexto}`;
+${catalogoTexto}${contextoCliente?._cartUrl ? `
+
+═══════════════════════════════════
+LINK DE CARRITO
+═══════════════════════════════════
+${contextoCliente._cartUrl}
+Usa EXACTAMENTE este link en PASO 9 cuando el cliente confirme su pedido.` : ''}`;
 }
 
 async function clasificarIntencionProducto(historialCliente, textoActual) {
@@ -623,12 +633,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── Nombre de perfil WhatsApp (Meta) ──────────────────────────────────────
-  // Se usa solo si el lead no tiene nombre aún. No sobreescribe nombre de empresa.
+  // Solo en estado (prompts); en DB solo si lead no tiene nombre real (ver patch).
   const leadUpdate = {};
-  if (nombrePerfil && !getEstado(phone).clienteNombre) {
-    leadUpdate.nombre = nombrePerfil;
-    setEstado(phone, { clienteNombre: nombrePerfil });
-  }
+  if (nombrePerfil) setEstado(phone, { clienteNombre: nombrePerfil });
 
   // ── Limpiar estado si es conversación nueva (evita herencia de sesiones previas) ──
   if (!conversacionExistente || (conversacionExistente.mensajes || []).length <= 1) {
@@ -858,6 +865,23 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   const { resultados: productosCtx } = datos.buscarProductos(queryProductos, canalActual);
   const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
 
+  // Guardar productos del contexto en estado (para carrito)
+  if (productosCtx.length > 0) {
+    const skuMap = {};
+    productosCtx.forEach(p => { if (p.sku) skuMap[p.sku] = p; });
+    setEstado(phone, { skuMapActual: skuMap });
+  }
+
+  // Pre-construir link de carrito (skusConfirmados tiene prioridad; si no, todos del contexto)
+  const { buildCartUrl } = require('../utils/wooCart');
+  const _estadoPreGPT = getEstado(phone);
+  const _skusConf = _estadoPreGPT.skusConfirmados || [];
+  const _skuMapActual = _estadoPreGPT.skuMapActual || {};
+  const _itemsCarrito = _skusConf.length > 0
+    ? _skusConf
+    : Object.entries(_skuMapActual).map(([sku]) => ({ sku, quantity: 1 }));
+  const cartUrl = _itemsCarrito.length > 0 ? buildCartUrl(_itemsCarrito) : null;
+
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────
   let identificacionHint = '';
   if (estadoActual.rut_no_encontrado) {
@@ -873,9 +897,11 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   } else if (!estadoActual.rut && historialConv.length >= 4) {
     identificacionHint = 'Ya llevas varios mensajes sin identificar al cliente. Menciona naturalmente que podrías atenderlo mejor si supieras si es cliente habitual.';
   }
-  const ctxParaPrompt = identificacionHint
-    ? { ...(contextoCliente || {}), _hint: identificacionHint }
-    : contextoCliente;
+  const ctxParaPrompt = {
+    ...(contextoCliente || {}),
+    ...(identificacionHint ? { _hint: identificacionHint } : {}),
+    ...(cartUrl ? { _cartUrl: cartUrl } : {}),
+  };
 
   // ── PASO 8: Llamar a OpenAI ───────────────────────────────────────────────
   let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx)
@@ -1002,6 +1028,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     if (leadId) {
       // FIX 3: patch siempre incluye etapa_pipeline y ultima_actividad
       const patch = { ...leadUpdate };
+      if (nombrePerfil && !patch.nombre && (!leadExistente?.nombre || leadExistente?.nombre === phone)) {
+        patch.nombre = nombrePerfil;
+      }
       if (!leadExistente?.phone) patch.phone = phone;
       if (!leadExistente?.telefono) patch.telefono = phone;
       const patchFinal = {

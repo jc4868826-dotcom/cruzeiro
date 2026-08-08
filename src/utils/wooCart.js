@@ -10,7 +10,7 @@ function buildCartUrl(items) {
   for (const item of items) {
     const sku = item.sku || item.SKU;
     const qty = Math.max(1, parseInt(item.quantity || item.cantidad) || 1);
-    const wooId = wooMap[sku];
+    const wooId = wooMap[sku] || wooMap[sku?.toUpperCase()];
     if (!wooId) continue;
     params.append('add-to-cart[]', wooId);
     params.append('quantity[]', qty);
