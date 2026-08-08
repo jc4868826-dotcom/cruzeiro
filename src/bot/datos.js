@@ -198,6 +198,96 @@ function clasificarPorRut(rutRaw) {
   };
 }
 
+// ─── Búsqueda de productos — 3 capas ─────────────────────────────────────────
+
+const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+function _buscarEnUsos(termino, tokens) {
+  const usos = dataStore.getUsos();
+  const termNorm = _norm(termino);
+
+  // 1ª pasada: categoría coincide con el término completo
+  for (const u of usos) {
+    const catNorm = _norm(u.categoria);
+    if (!catNorm) continue;
+    if (termNorm.includes(catNorm) || catNorm.includes(termNorm)) return u.categoria;
+  }
+  // 2ª pasada: todos los tokens deben aparecer en el texto de conocimiento
+  for (const u of usos) {
+    const conocNorm = _norm(u.conocimiento);
+    if (tokens.every(t => conocNorm.includes(t))) return u.categoria;
+  }
+  return null;
+}
+
+function _buscarPorFamilia(familia, canal) {
+  if (!familia) return [];
+  const famNorm = _norm(familia);
+  return dataStore.getCatalogo()
+    .filter(p => {
+      const precio = canal === 'mayorista' ? p.precio_mayorista : p.precio_web;
+      if (!precio || precio <= 1) return false;
+      return [p.subcategoria, p.familia, p.padre_familia, p.categoria]
+        .some(f => { const fn = _norm(f); return fn && (fn.includes(famNorm) || famNorm.includes(fn)); });
+    })
+    .slice(0, 10);
+}
+
+function _buscarTextoLibre(tokens, fuente, canal) {
+  const items = fuente === 'web'
+    ? dataStore.getWebProductos()
+    : dataStore.getMaestraProductos();
+
+  const scored = items
+    .map(p => {
+      const texto = [
+        p['Subcategoría'] || p.subcategoria || '',
+        p['Categoría']    || p.categoria    || '',
+        p['Nombre Web']   || p.nombreWeb    || p.descripcion || '',
+        p.descripcionCorta || '',
+      ].join(' ');
+      const score = tokens.filter(t => _norm(texto).includes(t)).length;
+      return { ...p, _score: score };
+    })
+    .filter(p => p._score > 0)
+    .sort((a, b) => b._score - a._score)
+    .slice(0, 8);
+
+  if (!scored.length) return [];
+
+  // Mapear de vuelta al formato catalogo para compatibilidad con agruparVariantes
+  const skus = new Set(scored.map(p => p.sku));
+  return dataStore.getCatalogo().filter(p => {
+    if (!skus.has(p.sku)) return false;
+    const precio = canal === 'mayorista' ? p.precio_mayorista : p.precio_web;
+    return precio && precio > 1;
+  });
+}
+
+function buscarProductos(termino, canal, opciones = {}) {
+  const tokens = _norm(termino).split(/\s+/).filter(t => t.length > 3);
+  if (!tokens.length) return { resultados: [], capa: 0 };
+
+  // CAPA 1: Usos_Especificaciones → familia → catálogo
+  const familia = _buscarEnUsos(termino, tokens);
+  if (familia) {
+    const resultados = _buscarPorFamilia(familia, canal);
+    if (resultados.length > 0) return { resultados, capa: 1, familia };
+  }
+
+  // CAPA 2: texto libre en web.xlsx
+  const webResultados = _buscarTextoLibre(tokens, 'web', canal);
+  if (webResultados.length > 0) return { resultados: webResultados, capa: 2 };
+
+  // CAPA 3: texto libre en Maestra_Orleans (solo mayorista)
+  if (canal === 'mayorista') {
+    const maestraResultados = _buscarTextoLibre(tokens, 'maestra', canal);
+    if (maestraResultados.length > 0) return { resultados: maestraResultados, capa: 3 };
+  }
+
+  return { resultados: [], capa: 0 };
+}
+
 module.exports = {
   buscarClientePorRut,
   buscarCotizacionesPorRut,
@@ -205,6 +295,7 @@ module.exports = {
   buscarPedidosPorRut,
   resolverEjecutivo,
   clasificarPorRut,
+  buscarProductos,
   getTodosCatalogo,
   cargarTodosEjecutivos,
   cargarClientes,

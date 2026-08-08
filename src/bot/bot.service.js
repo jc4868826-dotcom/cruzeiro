@@ -854,7 +854,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   const queryAcumulado = [...mensajesCliente, ...mensajesBot, texto].join(' ');
 
   const canalActual = estadoActual?.canal || conversacionExistente?.canal || 'ecommerce';
-  const productosCtx = getCatalogAdapter().buscar(queryAcumulado, canalActual);
+  const { resultados: productosCtx } = datos.buscarProductos(queryAcumulado, canalActual);
   const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
 
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────

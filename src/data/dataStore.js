@@ -6,18 +6,20 @@ const ftpLoader  = require('./ftpLoader');
 const DATA_DIR = process.env.EXCEL_DIR || path.join(__dirname, '../../data/cruzeiro');
 const RELOAD_INTERVAL_MS = 10 * 60 * 1000;
 
-let store = { catalogo: [], ventasMap: new Map(), ventasRaw: [], usos: [], pedidos: [], ejecutivos: [], lastLoaded: null };
+let store = { catalogo: [], ventasMap: new Map(), ventasRaw: [], usos: [], pedidos: [], ejecutivos: [], webProductos: [], maestraProductos: [], lastLoaded: null };
 
 function _loadSync() {
-  const maestraMap = loaders.loadMaestra(DATA_DIR);
-  const webArray   = loaders.loadWeb(DATA_DIR);
-  const catalogo   = loaders.buildCatalogo(maestraMap, webArray);
-  const ventasMap  = loaders.loadVentas(DATA_DIR);
-  const ventasRaw  = loaders.loadVentasRaw(DATA_DIR);
-  const usos       = loaders.loadUsos(DATA_DIR);
-  const pedidos    = loaders.loadPedidos(DATA_DIR);
-  const ejecutivos = loaders.loadInputs(DATA_DIR);
-  return { catalogo, ventasMap, ventasRaw, usos, pedidos, ejecutivos, lastLoaded: new Date() };
+  const maestraMap      = loaders.loadMaestra(DATA_DIR);
+  const webArray        = loaders.loadWeb(DATA_DIR);
+  const catalogo        = loaders.buildCatalogo(maestraMap, webArray);
+  const ventasMap       = loaders.loadVentas(DATA_DIR);
+  const ventasRaw       = loaders.loadVentasRaw(DATA_DIR);
+  const usos            = loaders.loadUsos(DATA_DIR);
+  const pedidos         = loaders.loadPedidos(DATA_DIR);
+  const ejecutivos      = loaders.loadInputs(DATA_DIR);
+  const webProductos    = webArray;
+  const maestraProductos = [...maestraMap.entries()].map(([sku, d]) => ({ sku, ...d }));
+  return { catalogo, ventasMap, ventasRaw, usos, pedidos, ejecutivos, webProductos, maestraProductos, lastLoaded: new Date() };
 }
 
 async function init() {
@@ -52,11 +54,13 @@ function getCatalogo() {
     return { ...p, saldo_ftp: entry ? entry.saldo : null };
   });
 }
-function getVentasMap()     { return store.ventasMap; }
-function getVentasRaw()     { return store.ventasRaw; }
-function getUsos()          { return store.usos; }
-function getPedidos()       { return store.pedidos; }
-function getEjecutivos()    { return store.ejecutivos; }
+function getVentasMap()       { return store.ventasMap; }
+function getVentasRaw()       { return store.ventasRaw; }
+function getUsos()            { return store.usos; }
+function getPedidos()         { return store.pedidos; }
+function getEjecutivos()      { return store.ejecutivos; }
+function getWebProductos()    { return store.webProductos; }
+function getMaestraProductos(){ return store.maestraProductos; }
 function getClientesFTP()        { return ftpLoader.getClientesMap(); }
 function getCotizacionesFTP()    { return ftpLoader.getCotizaciones(); }
 function getCotizaciones()       { return ftpLoader.getCotizaciones(); }
@@ -65,4 +69,4 @@ function getWooMap()             { return ftpLoader.getWooMap(); }
 function getWooOrders()          { return ftpLoader.getWooOrders(); }
 function getWooOrdersByRut(rut)  { return ftpLoader.getWooOrdersByRut(rut); }
 
-module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getClientesFTP, getCotizacionesFTP, getCotizaciones, getVentasFTPRaw, getWooMap, getWooOrders, getWooOrdersByRut };
+module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getWebProductos, getMaestraProductos, getClientesFTP, getCotizacionesFTP, getCotizaciones, getVentasFTPRaw, getWooMap, getWooOrders, getWooOrdersByRut };
