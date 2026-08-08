@@ -176,18 +176,35 @@ function loadVentasRaw(excelDir) {
 function loadUsos(excelDir) {
   try {
     const wb = xlsx.readFile(path.join(excelDir, 'Usos_Especificaciones.xlsx'));
-    const rows = xlsx.utils.sheet_to_json(wb.Sheets['Usos'], { header: 1, defval: null });
-    const result = [];
-    let currentCat = '';
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row[0]) currentCat = String(row[0]).trim();
-      const texts = row.slice(1).filter(v => v != null).map(v => String(v).trim()).filter(Boolean);
-      if (texts.length) {
-        result.push({ categoria: currentCat, conocimiento: texts.join(' | ') });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const filas = xlsx.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+    const usos = [];
+    let familiaActual = null;
+    let textosActuales = [];
+
+    for (const fila of filas) {
+      if (fila[0] != null) {
+        if (familiaActual) {
+          usos.push({
+            categoria: familiaActual,
+            conocimiento: textosActuales.join(' ').replace(/\s+/g, ' ').trim(),
+          });
+        }
+        familiaActual = String(fila[0]).trim().replace(/\n/g, ' ');
+        textosActuales = [];
+      }
+      for (let i = 1; i < fila.length; i++) {
+        if (fila[i] != null) textosActuales.push(String(fila[i]).trim().replace(/\n/g, ' '));
       }
     }
-    return result;
+    if (familiaActual) {
+      usos.push({
+        categoria: familiaActual,
+        conocimiento: textosActuales.join(' ').replace(/\s+/g, ' ').trim(),
+      });
+    }
+    return usos;
   } catch {
     return [];
   }

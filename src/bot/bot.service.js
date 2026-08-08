@@ -328,10 +328,15 @@ Si lo ofreces y el cliente dice que sí → dale el SKU y precio del catálogo i
 NUNCA digas "te confirmo el precio" de un complemento que ya ofreciste — si no tienes precio, no lo ofrezcas.
 
 PASO 9 — CERRAR:
-Cuando el cliente confirme su elección, usa el link del carrito pre-generado del contexto (sección LINK DE CARRITO, si existe).
-Formato: "Perfecto. Aquí va tu link directo al carrito: [link]"
-Si no hay link pre-generado: "Puedes agregar los productos en https://cruzeirogomas.cl/carrito/"
-Nunca digas "buscando por SKU" — el cliente no sabe qué es un SKU.
+Cuando el cliente confirme su elección de productos:
+1. Resume brevemente lo elegido con nombre y precio
+2. Agrega al FINAL de tu respuesta, en una línea separada, este marcador oculto exacto:
+   [SKU:CODIGO1×CANTIDAD1,CODIGO2×CANTIDAD2]
+   Ejemplo: [SKU:I313240A×1,I313240G×2,P357YSD0021×10]
+   Los códigos los encuentras en los datos del catálogo (campo SKU).
+3. Después del marcador agrega solo: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
+NUNCA uses el símbolo × en otro contexto — es el delimitador del marcador.
+El sistema reemplaza [carrito] y elimina [SKU:...] antes de enviar al cliente.
 
 ═══════════════════════════════════
 REGLA ABSOLUTA — PRODUCTOS
@@ -435,13 +440,7 @@ Al presentar opciones al cliente muestra SOLO: nombre del producto y precio. El 
 CATÁLOGO DE PRODUCTOS DISPONIBLES
 Solo estos puedes ofrecer — nunca inventes otros
 ═══════════════════════════════════
-${catalogoTexto}${contextoCliente?._cartUrl ? `
-
-═══════════════════════════════════
-LINK DE CARRITO
-═══════════════════════════════════
-${contextoCliente._cartUrl}
-Usa EXACTAMENTE este link en PASO 9 cuando el cliente confirme su pedido.` : ''}`;
+${catalogoTexto}`;
 }
 
 async function clasificarIntencionProducto(historialCliente, textoActual) {
@@ -872,15 +871,8 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     setEstado(phone, { skuMapActual: skuMap });
   }
 
-  // Pre-construir link de carrito (skusConfirmados tiene prioridad; si no, todos del contexto)
+  // Carrito se construye post-GPT via hidden marker [SKU:...]
   const { buildCartUrl } = require('../utils/wooCart');
-  const _estadoPreGPT = getEstado(phone);
-  const _skusConf = _estadoPreGPT.skusConfirmados || [];
-  const _skuMapActual = _estadoPreGPT.skuMapActual || {};
-  const _itemsCarrito = _skusConf.length > 0
-    ? _skusConf
-    : Object.entries(_skuMapActual).map(([sku]) => ({ sku, quantity: 1 }));
-  const cartUrl = _itemsCarrito.length > 0 ? buildCartUrl(_itemsCarrito) : null;
 
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────
   let identificacionHint = '';
@@ -900,45 +892,38 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   const ctxParaPrompt = {
     ...(contextoCliente || {}),
     ...(identificacionHint ? { _hint: identificacionHint } : {}),
-    ...(cartUrl ? { _cartUrl: cartUrl } : {}),
   };
 
   // ── PASO 8: Llamar a OpenAI ───────────────────────────────────────────────
   let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx)
     || `Estoy aquí para ayudarte. ¿En qué puedo orientarte?`;
 
-  // ── Capturar SKUs mencionados en la respuesta del bot ──────────────────
-  const _skuRegex = /\bSKU[:\s]+([A-Z0-9][A-Z0-9]{3,}(?:[-][A-Z0-9]+)?)/gi;
-  const _skusEnRespuesta = [];
-  let _skuMatch;
-  while ((_skuMatch = _skuRegex.exec(respuesta)) !== null) {
-    _skusEnRespuesta.push(_skuMatch[1].trim());
-  }
-  if (_skusEnRespuesta.length > 0) {
-    const _estadoSkus = getEstado(phone);
-    const _skusActuales = _estadoSkus.skusConfirmados || [];
-    const _skusSet = new Map(_skusActuales.map(s => [s.sku, s]));
-    for (const sku of _skusEnRespuesta) {
-      if (!_skusSet.has(sku)) _skusSet.set(sku, { sku, cantidad: 1 });
-    }
-    setEstado(phone, { skusConfirmados: [..._skusSet.values()] });
-  }
+  // ── Parsear hidden SKU marker del bot ─────────────────────────────────
+  const _skuMarkerRegex = /\[SKU:([^\]]+)\]/;
+  const _markerMatch = respuesta.match(_skuMarkerRegex);
+  if (_markerMatch) {
+    const _itemsConf = _markerMatch[1].split(',').map(s => {
+      const partes = s.trim().split('×');
+      return { sku: partes[0].trim(), quantity: parseInt(partes[1]) || 1 };
+    }).filter(i => i.sku);
 
-  // ── Reemplazar link carrito genérico por link pre-cargado ──────────────
-  const { generarLinkCarrito } = require('../utils/wooCart');
-  const _estadoFinal = getEstado(phone);
-  const _skusParaCarrito = _estadoFinal.skusConfirmados || [];
-  if (
-    _skusParaCarrito.length > 0 &&
-    respuesta.includes('cruzeirogomas.cl/carrito')
-  ) {
-    const _linkGenerado = generarLinkCarrito(_skusParaCarrito);
-    if (_linkGenerado) {
-      respuesta = respuesta.replace(
-        /https?:\/\/cruzeirogomas\.cl\/carrito\/?[^\s)]*/g,
-        _linkGenerado
-      );
+    if (_itemsConf.length > 0) {
+      setEstado(phone, { skusConfirmados: _itemsConf });
     }
+
+    const _linkConf = buildCartUrl(_itemsConf);
+
+    respuesta = respuesta
+      .replace(_skuMarkerRegex, '')
+      .replace(/https?:\/\/cruzeirogomas\.cl\/carrito\/?[^\s)]*/g,
+               _linkConf || 'https://cruzeirogomas.cl/carrito/')
+      .trim();
+
+    if (_linkConf) {
+      respuesta = respuesta.replace(/\[carrito\]/g, _linkConf);
+    }
+
+    leadUpdate.link_carrito_enviado = true;
   }
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────

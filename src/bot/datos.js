@@ -204,20 +204,32 @@ const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-�
 
 function _buscarEnUsos(termino, tokens) {
   const usos = dataStore.getUsos();
+  if (!usos.length) return null;
   const termNorm = _norm(termino);
 
-  // 1ª pasada: categoría coincide con el término completo
+  // 1ª pasada: categoria contiene algún token principal (>4 chars) o match directo
   for (const u of usos) {
     const catNorm = _norm(u.categoria);
     if (!catNorm) continue;
     if (termNorm.includes(catNorm) || catNorm.includes(termNorm)) return u.categoria;
+    if (tokens.some(t => t.length > 4 && catNorm.includes(t))) return u.categoria;
   }
-  // 2ª pasada: todos los tokens deben aparecer en el texto de conocimiento
+
+  // 2ª pasada: score — cuántos tokens principales (>4 chars) aparecen en conocimiento
+  let mejorScore = 0;
+  let mejorCategoria = null;
   for (const u of usos) {
     const conocNorm = _norm(u.conocimiento);
-    if (tokens.every(t => conocNorm.includes(t))) return u.categoria;
+    const tokensMain = tokens.filter(t => t.length > 4);
+    if (!tokensMain.length) continue;
+    const hits = tokensMain.filter(t => conocNorm.includes(t)).length;
+    const score = hits / tokensMain.length;
+    if (score >= 0.4 && hits > mejorScore) {
+      mejorScore = hits;
+      mejorCategoria = u.categoria;
+    }
   }
-  return null;
+  return mejorCategoria;
 }
 
 function _buscarPorFamilia(familia, canal) {
