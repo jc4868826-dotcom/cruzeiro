@@ -236,39 +236,34 @@ function _buscarPorFamilia(familia, canal) {
   if (!familia) return [];
   const famNorm = _norm(familia);
 
-  if (canal !== 'mayorista') {
-    const webItems = dataStore.getWebProductos()
+  if (canal === 'mayorista') {
+    return dataStore.getCatalogo()
       .filter(p => {
-        const precio = Number(p.precio || 0);
-        if (precio <= 1) return false;
-        return [p.subcategoria || '', p.categoria || '', p.nombreWeb || ''].some(f => {
-          const fn = _norm(f);
-          return fn && (fn.includes(famNorm) || famNorm.includes(fn));
-        });
-      })
-      .slice(0, 10)
-      .map(p => ({
-        sku:              p.sku || '',
-        descripcion:      p.nombreWeb || '',
-        descripcionCorta: p.descripcionCorta || '',
-        precio_web:       Number(p.precio || 0),
-        precio_mayorista: 0,
-        familia:          p.subcategoria || '',
-        categoria:        p.categoria || '',
-        unidad:           'C/U',
-        imagen:           p.urlImagen || '',
-      }));
-    if (webItems.length > 0) return webItems;
+        if (!p.precio_mayorista || p.precio_mayorista <= 1) return false;
+        return [p.subcategoria, p.familia, p.padre_familia, p.categoria]
+          .some(f => { const fn = _norm(f); return fn && (fn.includes(famNorm) || famNorm.includes(fn)); });
+      }).slice(0, 10);
   }
 
-  return dataStore.getCatalogo()
+  // Ecommerce: solo web.xlsx (camelCase por loaders.js)
+  return dataStore.getWebProductos()
     .filter(p => {
-      const precio = canal === 'mayorista' ? p.precio_mayorista : p.precio_web;
-      if (!precio || precio <= 1) return false;
-      return [p.subcategoria, p.familia, p.padre_familia, p.categoria]
-        .some(f => { const fn = _norm(f); return fn && (fn.includes(famNorm) || famNorm.includes(fn)); });
-    })
-    .slice(0, 10);
+      const precio = Number(p.precio || 0);
+      if (precio <= 1) return false;
+      return [p.subcategoria || '', p.categoria || '', p.nombreWeb || ''].some(f => {
+        const fn = _norm(f); return fn && (fn.includes(famNorm) || famNorm.includes(fn));
+      });
+    }).slice(0, 10)
+    .map(p => ({
+      sku:              p.sku || '',
+      descripcion:      p.nombreWeb || '',
+      precio_web:       Number(p.precio || 0),
+      precio_mayorista: 0,
+      familia:          p.subcategoria || '',
+      categoria:        p.categoria || '',
+      unidad:           'C/U',
+      imagen:           p.urlImagen || '',
+    }));
 }
 
 function _buscarTextoLibre(tokens, fuente, canal) {
@@ -279,9 +274,9 @@ function _buscarTextoLibre(tokens, fuente, canal) {
   const scored = items
     .map(p => {
       const texto = [
-        p['Subcategoría'] || p.subcategoria || '',
-        p['Categoría']    || p.categoria    || '',
-        p['Nombre Web']   || p.nombreWeb    || p.descripcion || '',
+        p.subcategoria || '',
+        p.categoria    || '',
+        p.nombreWeb    || p.descripcion || '',
         p.descripcionCorta || '',
       ].join(' ');
       const score = tokens.filter(t => _norm(texto).includes(t)).length;
@@ -294,47 +289,50 @@ function _buscarTextoLibre(tokens, fuente, canal) {
   if (!scored.length) return [];
 
   if (fuente === 'web') {
-    return scored.map(p => ({
-      sku:              p.sku || '',
-      descripcion:      p.nombreWeb || '',
-      descripcionCorta: p.descripcionCorta || '',
-      precio_web:       Number(p.precio || 0),
-      precio_mayorista: 0,
-      familia:          p.subcategoria || '',
-      categoria:        p.categoria || '',
-      unidad:           'C/U',
-      imagen:           p.urlImagen || '',
-    })).filter(p => p.precio_web > 1);
+    return scored
+      .filter(p => Number(p.precio || 0) > 1)
+      .map(p => ({
+        sku:              p.sku || '',
+        descripcion:      p.nombreWeb || '',
+        precio_web:       Number(p.precio || 0),
+        precio_mayorista: 0,
+        familia:          p.subcategoria || '',
+        categoria:        p.categoria || '',
+        unidad:           'C/U',
+        imagen:           p.urlImagen || '',
+      }));
   }
 
-  // Maestra: cross-filter normal
-  const skus = new Set(scored.map(p => p.sku));
-  return dataStore.getCatalogo().filter(p => {
-    if (!skus.has(p.sku)) return false;
-    return p.precio_mayorista && p.precio_mayorista > 1;
-  });
+  // Mayorista: Maestra directamente (camelCase por loaders.js)
+  return scored
+    .filter(p => Number(p.precioVenta || 0) > 1)
+    .map(p => ({
+      sku:              p.sku || '',
+      descripcion:      p.descripcion || '',
+      precio_web:       0,
+      precio_mayorista: Number(p.precioVenta || 0),
+      familia:          p.familia || '',
+      categoria:        p.padreFamilia || '',
+      unidad:           p.unidad || 'C/U',
+    }));
 }
 
 function buscarProductos(termino, canal, opciones = {}) {
   const tokens = _norm(termino).split(/\s+/).filter(t => t.length > 3);
   if (!tokens.length) return { resultados: [], capa: 0 };
 
-  // CAPA 1: Usos_Especificaciones → familia → catálogo
+  const fuente = canal === 'mayorista' ? 'maestra' : 'web';
+
+  // CAPA 1: Usos_Especificaciones → familia → archivo correcto según canal
   const familia = _buscarEnUsos(termino, tokens);
   if (familia) {
     const resultados = _buscarPorFamilia(familia, canal);
     if (resultados.length > 0) return { resultados, capa: 1, familia };
   }
 
-  // CAPA 2: texto libre en web.xlsx
-  const webResultados = _buscarTextoLibre(tokens, 'web', canal);
-  if (webResultados.length > 0) return { resultados: webResultados, capa: 2 };
-
-  // CAPA 3: texto libre en Maestra_Orleans (solo mayorista)
-  if (canal === 'mayorista') {
-    const maestraResultados = _buscarTextoLibre(tokens, 'maestra', canal);
-    if (maestraResultados.length > 0) return { resultados: maestraResultados, capa: 3 };
-  }
+  // CAPA 2: texto libre en el archivo correcto según canal
+  const resultados2 = _buscarTextoLibre(tokens, fuente, canal);
+  if (resultados2.length > 0) return { resultados: resultados2, capa: 2 };
 
   return { resultados: [], capa: 0 };
 }
