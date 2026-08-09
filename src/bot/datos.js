@@ -256,12 +256,16 @@ function _buscarPorFamilia(familia, canal) {
     }).slice(0, 10)
     .map(p => ({
       sku:              p.sku || '',
+      nombre_web:       p.nombreWeb || '',
       descripcion:      p.nombreWeb || '',
+      precio:           Number(p.precio || 0),
       precio_web:       Number(p.precio || 0),
       precio_mayorista: 0,
+      subcategoria:     p.subcategoria || '',
       familia:          p.subcategoria || '',
       categoria:        p.categoria || '',
       unidad:           'C/U',
+      stock:            null,
       imagen:           p.urlImagen || '',
     }));
 }
@@ -293,12 +297,16 @@ function _buscarTextoLibre(tokens, fuente, canal) {
       .filter(p => Number(p.precio || 0) > 1)
       .map(p => ({
         sku:              p.sku || '',
+        nombre_web:       p.nombreWeb || '',
         descripcion:      p.nombreWeb || '',
+        precio:           Number(p.precio || 0),
         precio_web:       Number(p.precio || 0),
         precio_mayorista: 0,
+        subcategoria:     p.subcategoria || '',
         familia:          p.subcategoria || '',
         categoria:        p.categoria || '',
         unidad:           'C/U',
+        stock:            null,
         imagen:           p.urlImagen || '',
       }));
   }
@@ -308,12 +316,16 @@ function _buscarTextoLibre(tokens, fuente, canal) {
     .filter(p => Number(p.precioVenta || 0) > 1)
     .map(p => ({
       sku:              p.sku || '',
+      nombre_web:       p.descripcion || '',
       descripcion:      p.descripcion || '',
+      precio:           Number(p.precioVenta || 0),
       precio_web:       0,
       precio_mayorista: Number(p.precioVenta || 0),
+      subcategoria:     p.familia || '',
       familia:          p.familia || '',
       categoria:        p.padreFamilia || '',
       unidad:           p.unidad || 'C/U',
+      stock:            null,
     }));
 }
 

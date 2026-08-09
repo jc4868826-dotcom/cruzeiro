@@ -5,6 +5,7 @@ const db = require('../data/db');
 const logger = require('../utils/logger');
 const { OPENAI_API_KEY } = require('../config');
 const datos = require('./datos');
+const dataStore = require('../data/dataStore');
 
 // ─── In-memory conversation state (keyed by phone) ───────────────────────────
 // { etapa, canal, rut, ejecutivoAsignado, clienteNombre }
@@ -197,7 +198,7 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
     : 'No encontré productos para esta consulta. Pide más detalles al cliente para afinar la búsqueda.';
 
   const conocimientoTexto = Array.isArray(conocimientoContexto) && conocimientoContexto.length > 0
-    ? conocimientoContexto.slice(0, 5).join('\n\n')
+    ? conocimientoContexto.slice(0, 5).map(k => `${k.familia}: ${k.conocimiento}`).join('\n\n')
     : '';
 
   const mensajesPrevios = historialConv.length;
