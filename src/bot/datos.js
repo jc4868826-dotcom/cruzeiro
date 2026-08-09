@@ -1,6 +1,31 @@
 'use strict';
 const dataStore = require('../data/dataStore');
 
+// ─── Sinónimos de búsqueda ───────────────────────────────────────────────────
+const SINONIMOS_BUSQUEDA = {
+  'basurero':  'contenedor basura',
+  'basureros': 'contenedor basura',
+  'tacho':     'contenedor basura',
+  'tachos':    'contenedor basura',
+  'papelero':  'contenedor basura',
+  'papeleros': 'contenedor basura',
+  'zocalo':    'perfil zocalo',
+  'zocalos':   'perfil zocalo',
+  'tapete':    'alfombra piso',
+  'tapetes':   'alfombra piso',
+  'caucho':    'goma',
+  'cauchos':   'goma',
+  'cinta':     'banda transportadora',
+  'sello':     'perfil sellante',
+  'sellos':    'perfil sellante',
+};
+
+function _aplicarSinonimos(query) {
+  return query.toLowerCase().split(/\s+/).map(token =>
+    SINONIMOS_BUSQUEDA[token] || token
+  ).join(' ');
+}
+
 // ─── Búsquedas ────────────────────────────────────────────────────────────────
 
 const MESES_ES = { ene:1, jan:1, feb:2, mar:3, abr:4, apr:4, may:5, jun:6, jul:7, ago:8, aug:8, sep:9, oct:10, nov:11, dic:12, dec:12 };
@@ -215,17 +240,20 @@ function _buscarEnUsos(termino, tokens) {
     if (tokens.some(t => t.length > 4 && catNorm.includes(t))) return u.categoria;
   }
 
-  // 2ª pasada: score — cuántos tokens principales (>4 chars) aparecen en conocimiento
+  // 2ª pasada: score ponderado (primer token peso 2, resto peso 1)
   let mejorScore = 0;
   let mejorCategoria = null;
   for (const u of usos) {
-    const conocNorm = _norm(u.conocimiento);
+    const textoNorm = _norm(u.categoria + ' ' + u.conocimiento);
     const tokensMain = tokens.filter(t => t.length > 4);
     if (!tokensMain.length) continue;
-    const hits = tokensMain.filter(t => conocNorm.includes(t)).length;
-    const score = hits / tokensMain.length;
-    if (score >= 0.4 && hits > mejorScore) {
-      mejorScore = hits;
+    const pesoTotal = tokensMain.reduce((acc, _, i) => acc + (i === 0 ? 2 : 1), 0);
+    const hitsConPeso = tokensMain.reduce((acc, t, i) => {
+      return acc + (textoNorm.includes(t) ? (i === 0 ? 2 : 1) : 0);
+    }, 0);
+    const score = hitsConPeso / pesoTotal;
+    if (score >= 0.4 && hitsConPeso > mejorScore) {
+      mejorScore = hitsConPeso;
       mejorCategoria = u.categoria;
     }
   }
@@ -330,13 +358,14 @@ function _buscarTextoLibre(tokens, fuente, canal) {
 }
 
 function buscarProductos(termino, canal, opciones = {}) {
-  const tokens = _norm(termino).split(/\s+/).filter(t => t.length > 3);
+  const queryNormalizada = _aplicarSinonimos(termino);
+  const tokens = _norm(queryNormalizada).split(/\s+/).filter(t => t.length > 3);
   if (!tokens.length) return { resultados: [], capa: 0 };
 
   const fuente = canal === 'mayorista' ? 'maestra' : 'web';
 
   // CAPA 1: Usos_Especificaciones → familia → archivo correcto según canal
-  const familia = _buscarEnUsos(termino, tokens);
+  const familia = _buscarEnUsos(queryNormalizada, tokens);
   if (familia) {
     const resultados = _buscarPorFamilia(familia, canal);
     if (resultados.length > 0) return { resultados, capa: 1, familia };
