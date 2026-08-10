@@ -5,13 +5,15 @@ const dataStore = require('../data/dataStore');
 function buildCartUrl(items) {
   if (!Array.isArray(items) || !items.length) return null;
   const wooMap = dataStore.getWooMap();
+  console.log('[wooCart] items recibidos:', JSON.stringify(items));
+  console.log('[wooCart] wooMap total:', Object.keys(wooMap).length, 'entradas');
   const params = new URLSearchParams();
   let alguno = false;
   for (const item of items) {
     const sku = item.sku || item.SKU;
     const qty = Math.max(1, parseInt(item.quantity || item.cantidad) || 1);
     const wooId = wooMap[sku] || wooMap[sku?.toUpperCase()];
-    if (!wooId) continue;
+    if (!wooId) { console.warn('[wooCart] SKU sin WooID:', sku); continue; }
     params.append('add-to-cart[]', wooId);
     params.append('quantity[]', qty);
     alguno = true;
