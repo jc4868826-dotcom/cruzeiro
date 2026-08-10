@@ -982,6 +982,10 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     const _link = _itemsParaCarrito.length > 0
       ? buildCartUrl(_itemsParaCarrito)
       : null;
+    console.log('[DEBUG-CARRITO] respuesta incluye [carrito]:', respuesta.includes('[carrito]'));
+    console.log('[DEBUG-CARRITO] productosCtx length:', (productosCtx||[]).length);
+    console.log('[DEBUG-CARRITO] skusConfirmados:', JSON.stringify(estadoActual?.skusConfirmados));
+    console.log('[DEBUG-CARRITO] itemsParaCarrito:', JSON.stringify(_itemsParaCarrito));
     respuesta = respuesta.replace(
       /\[carrito\]/g,
       _link || 'Para completar tu compra contáctanos por este medio 😊'
