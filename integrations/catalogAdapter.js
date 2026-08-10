@@ -207,12 +207,18 @@ function getTodos() {
   return datos.getTodosCatalogo();
 }
 
+function extraerSkuBase(sku) {
+  const segmentos = sku.split('-');
+  if (segmentos.length >= 3) return sku; // ≥3 segmentos → cada SKU es único (ej: P357002-40-248)
+  return segmentos.slice(0, -1).join('-') || sku; // 2 segmentos → agrupar por prefijo (ej: I271PIST01NE)
+}
+
 function agruparVariantes(productos) {
   const grupos = new Map();
 
   for (const p of productos) {
-    // SKU base = todo antes del primer guion (ej: I271PIST01NE-20 → I271PIST01NE)
-    const skuBase = p.sku.split('-')[0];
+    // SKU base: ≥3 segmentos → SKU completo (no agrupa); 2 segmentos → prefijo antes del último guión
+    const skuBase = extraerSkuBase(p.sku);
 
     // Extraer ancho desde nombre_web (ej: "X 1 mt" o "X1,6 mt" o "X1,0MT")
     const matchAncho = (p.nombre_web || '').match(/[Xx]\s*(\d+[,.]\d+|\d+)\s*m/i);
@@ -269,7 +275,7 @@ function agruparVariantes(productos) {
       // Buscar en catálogo completo productos cuyo SKU base coincida
       // y sean de tipo metro (unidad MT/mt/ML y sin guion en SKU)
       const variantesMetro = todoCatalogo.filter(p => {
-        const base = p.sku.split('-')[0];
+        const base = extraerSkuBase(p.sku);
         const esMetro = (p.unidad === 'MT' || p.unidad === 'mt' || p.unidad === 'ML');
         const precioValido = p.precio && p.precio > 1;
         const stockFtpOk = (p.saldo_ftp === null || p.saldo_ftp === undefined || p.saldo_ftp > 0);

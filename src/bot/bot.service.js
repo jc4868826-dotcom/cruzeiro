@@ -520,9 +520,10 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
           role: m.rol === 'cliente' ? 'user' : 'assistant',
           content: m.texto,
         })),
+        { role: 'system', content: `RECORDATORIO FINAL: Si en tu respuesta confirmas productos y el cliente está cerrando su pedido, DEBES incluir el marcador [SKU:CODIGO×CANTIDAD] con los SKU_INTERNO exactos del catálogo, seguido de la línea: "Aquí tienes el link con todo listo: [carrito]". Si no incluyes el marcador, el sistema NO puede generar el link.` },
         { role: 'user', content: texto },
       ],
-      max_tokens: 350,
+      max_tokens: 500,
       temperature: 0.4,
     });
     return completion.choices[0]?.message?.content?.trim() || null;
