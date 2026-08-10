@@ -331,11 +331,16 @@ NUNCA digas "te confirmo el precio" de un complemento que ya ofreciste — si no
 PASO 9 — CERRAR:
 Cuando el cliente confirme su elección de productos:
 1. Resume brevemente lo elegido con nombre y precio
-2. Agrega al FINAL de tu respuesta, en una línea separada, este marcador oculto exacto:
-   [SKU:CODIGO1×CANTIDAD1,CODIGO2×CANTIDAD2]
-   Ejemplo: [SKU:I313240A×1,I313240G×2,P357YSD0021×10]
-   Los códigos los encuentras en los datos del catálogo (campo SKU).
-3. Después del marcador agrega solo: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
+GENERACIÓN DEL CARRITO — OBLIGATORIO cuando el cliente confirma qué quiere comprar:
+1. Escribe el marcador oculto con el SKU exacto del catálogo y la cantidad confirmada:
+   Formato: [SKU:CODIGO_SKU×CANTIDAD]
+   Ejemplo: [SKU:P357002-40-258×2]
+   Si son varios productos: [SKU:P357002-40-258×2,P271PIST01NE-20×1]
+2. El SKU debe ser exactamente el campo "sku" del producto del catálogo.
+3. Inmediatamente después escribe: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
+4. NUNCA construyas la URL tú mismo — usa siempre [carrito].
+5. Si el cliente pide productos adicionales después del carrito, agrega el nuevo [SKU:...] con los productos nuevos — el sistema acumula automáticamente.
+6. Si no tienes el SKU exacto del producto, NO escribas el marker — di al cliente que puede finalizar la compra en la web.
 NUNCA uses el símbolo × en otro contexto — es el delimitador del marcador.
 El sistema reemplaza [carrito] y elimina [SKU:...] antes de enviar al cliente.
 
@@ -916,11 +921,22 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       return { sku: partes[0].trim(), quantity: parseInt(partes[1]) || 1 };
     }).filter(i => i.sku);
 
+    // Acumular SKUs confirmados: agregar los nuevos, actualizar cantidad si ya existe
+    const _skusExistentes = estadoActual?.skusConfirmados || [];
+    const _skusNuevos = [..._skusExistentes];
     if (_itemsConf.length > 0) {
-      setEstado(phone, { skusConfirmados: _itemsConf });
+      for (const item of _itemsConf) {
+        const idx = _skusNuevos.findIndex(s => s.sku === item.sku);
+        if (idx >= 0) {
+          _skusNuevos[idx].quantity = item.quantity; // actualiza cantidad
+        } else {
+          _skusNuevos.push(item); // agrega nuevo
+        }
+      }
+      setEstado(phone, { skusConfirmados: _skusNuevos });
     }
 
-    const _linkConf = buildCartUrl(_itemsConf);
+    const _linkConf = buildCartUrl(_skusNuevos);
 
     respuesta = respuesta
       .replace(_skuMarkerRegex, '')
@@ -935,12 +951,13 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     leadUpdate.link_carrito_enviado = true;
   }
 
-  // ── Reemplazo de [carrito] independiente del marker [SKU:...] ─────────────
+  // ── Reemplazo de [carrito] cuando no hay marker [SKU:...] ──────────────
   if (respuesta.includes('[carrito]')) {
-    const _itemsFallback = (productosCtx || [])
-      .filter(p => p.sku)
-      .map(p => ({ sku: p.sku, quantity: 1 }));
-    const _linkFallback = _itemsFallback.length > 0 ? buildCartUrl(_itemsFallback) : null;
+    // Intentar usar skusConfirmados acumulados del estado
+    const _skusAcumulados = estadoActual?.skusConfirmados || [];
+    const _linkFallback = _skusAcumulados.length > 0
+      ? buildCartUrl(_skusAcumulados)
+      : null;
     respuesta = respuesta.replace(
       /\[carrito\]/g,
       _linkFallback || 'Para completar tu compra contáctanos por este medio 😊'
