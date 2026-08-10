@@ -168,6 +168,11 @@ function formatPrice(n) {
   return `$${Number(n).toLocaleString('es-CL')}`;
 }
 
+function detectarConfirmacion(texto) {
+  const t = texto.toLowerCase().trim();
+  return /^(s[íi]|sí|si|dale|ok|okay|bueno|perfecto|confirmo|eso|listo|ambos|los dos|ese|esa|quiero ese|me llevo|lo quiero|eso es todo|nada m[aá]s|solo eso|con eso|est[aá] bien|ning[uú]n? m[aá]s|no m[aá]s|eso nada m[aá]s)\b/i.test(t);
+}
+
 function buildSystemPrompt(productosContexto, contextoCliente = null, conocimientoContexto = null, historialConv = []) {
   const { agruparVariantes } = getCatalogAdapter();
   const grupos = Array.isArray(productosContexto) && productosContexto.length > 0
@@ -308,56 +313,37 @@ NUNCA muestres precio antes de saber la cantidad.
 Muestra 2-3 opciones del catálogo con nombre y precio.
 El SKU es interno — NO lo muestres al cliente.
 
-PASO 4 — ACUMULAR PEDIDO:
-Cuando el cliente confirme qué quiere, escribe el marcador oculto.
-Ver sección GENERACIÓN DEL LINK DE CARRITO más abajo para el formato exacto.
+PASO 4 — CONFIRMAR PEDIDO:
+Cuando el cliente confirme qué quiere, responde con el nombre y precio del
+producto elegido. Luego escribe exactamente:
+"Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
+El sistema genera el link automáticamente. Solo debes escribir [carrito].
+NUNCA construyas una URL tú mismo.
 
 PASO 5 — OFRECER COMPLEMENTOS:
-Después de confirmar un producto, pregunta si necesita algo más relacionado.
+Después de enviar el link, pregunta si necesita algo más relacionado.
 Ejemplos: "¿También necesitas bolsas para esos contenedores?" o
 "¿Necesitas algún accesorio adicional?"
-Continúa la conversación — NO envíes el link todavía.
+Si el cliente pide algo adicional, repite el flujo desde PASO 2.
 
-PASO 6 — RESUMEN Y LINK (SOLO cuando el cliente diga que no necesita nada más):
-Cuando el cliente confirme que terminó (diga "eso es todo", "nada más",
-"solo eso", "con eso está bien" u equivalente):
-1. Haz un resumen de TODO lo confirmado en la conversación.
-2. Escribe el marcador con TODOS los SKU_INTERNO acumulados (ver sección abajo).
-3. Escribe: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
+PASO 6 — CIERRE FINAL:
+Cuando el cliente diga que no necesita nada más, despídete brevemente.
 
 REGLAS ABSOLUTAS:
-- NUNCA uses [carrito] antes de que el cliente confirme que terminó.
 - NUNCA repitas preguntas que el cliente ya respondió en el historial.
 - NUNCA inventes productos, precios, medidas o características.
 - NUNCA muestres el SKU_INTERNO al cliente en el texto visible.
-- NUNCA escribas [SKU:...] en mensajes intermedios — solo en el mensaje final.
 - Solo puedes mencionar productos del CATÁLOGO DE PRODUCTOS DISPONIBLES.
 - Si el cliente pide algo que no está en el catálogo, dilo claramente y
   ofrece alternativas del catálogo que sí existan.
 
 ═══════════════════════════════════
-GENERACIÓN DEL LINK DE CARRITO — OBLIGATORIO
+GENERACIÓN DEL LINK
 ═══════════════════════════════════
-Cuando el cliente confirme su pedido completo y diga que no necesita nada más,
-escribe en tu respuesta este marcador oculto con los SKU_INTERNO de cada
-producto confirmado y su cantidad:
-
-Formato: [SKU:CODIGO×CANTIDAD,CODIGO×CANTIDAD]
-- Usa exactamente el código que aparece como SKU_INTERNO en el catálogo
-- Usa × (multiplicación) como separador entre SKU y cantidad
-- Separa múltiples productos con coma sin espacio
-
-Ejemplo real:
-Si el cliente confirmó 2 contenedores negros (SKU_INTERNO: P357CONT240NE)
-y 10 bolsas (SKU_INTERNO: P357002-40-253), escribe:
-[SKU:P357CONT240NE×2,P357002-40-253×10]
-Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?
-
-REGLAS:
-- El marcador [SKU:...] debe ir ANTES de la línea con [carrito]
-- NUNCA muestres el SKU_INTERNO al cliente en el texto visible
-- NUNCA uses [carrito] sin el marcador [SKU:...] antes
-- Solo usa SKU_INTERNO que aparezcan en el catálogo de este prompt
+Cuando el cliente confirme qué quiere comprar, escribe exactamente:
+"Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
+El sistema genera el link automáticamente. Solo debes escribir [carrito].
+NUNCA construyas una URL tú mismo.
 
 ═══════════════════════════════════
 REGLA ABSOLUTA — PRODUCTOS
@@ -520,7 +506,7 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
           role: m.rol === 'cliente' ? 'user' : 'assistant',
           content: m.texto,
         })),
-        { role: 'system', content: `RECORDATORIO FINAL: Si en tu respuesta confirmas productos y el cliente está cerrando su pedido, DEBES incluir el marcador [SKU:CODIGO×CANTIDAD] con los SKU_INTERNO exactos del catálogo, seguido de la línea: "Aquí tienes el link con todo listo: [carrito]". Si no incluyes el marcador, el sistema NO puede generar el link.` },
+        { role: 'system', content: `RECORDATORIO FINAL: Cuando el cliente confirme su elección de producto, escribe inmediatamente: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?" El sistema genera el link automáticamente al detectar [carrito]. NO necesitas escribir nada más que [carrito].` },
         { role: 'user', content: texto },
       ],
       max_tokens: 500,
@@ -932,6 +918,22 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx)
     || `Estoy aquí para ayudarte. ¿En qué puedo orientarte?`;
 
+  // ── Construcción automática del carrito sin depender del marker ──────────
+  const esConfirmacion = detectarConfirmacion(texto);
+  const skusActuales = (productosCtx || [])
+    .filter(p => p.sku)
+    .map(p => ({ sku: p.sku, quantity: 1 }));
+
+  if (esConfirmacion && skusActuales.length > 0 && respuesta.includes('[carrito]')) {
+    const _skusAcum = estadoActual?.skusConfirmados || [];
+    const _primerSku = skusActuales[0];
+    const _yaExiste = _skusAcum.findIndex(s => s.sku === _primerSku.sku) >= 0;
+    if (!_yaExiste) {
+      _skusAcum.push(_primerSku);
+      setEstado(phone, { skusConfirmados: _skusAcum });
+    }
+  }
+
   // ── Parsear hidden SKU marker del bot ─────────────────────────────────
   const _skuMarkerRegex = /\[SKU:([^\]]+)\]/;
   const _markerMatch = respuesta.match(_skuMarkerRegex);
@@ -971,18 +973,23 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     leadUpdate.link_carrito_enviado = true;
   }
 
-  // ── Reemplazo de [carrito] cuando no hay marker [SKU:...] ──────────────
+  // ── Reemplazo de [carrito]: usa skusConfirmados o productosCtx según contexto ──
   if (respuesta.includes('[carrito]')) {
-    // Intentar usar skusConfirmados acumulados del estado
-    const _skusAcumulados = estadoActual?.skusConfirmados || [];
-    const _linkFallback = _skusAcumulados.length > 0
-      ? buildCartUrl(_skusAcumulados)
+    const _skusAcum = estadoActual?.skusConfirmados || [];
+    const _itemsParaCarrito = _skusAcum.length > 0
+      ? _skusAcum
+      : (esConfirmacion && skusActuales.length > 0 ? skusActuales : []);
+    const _link = _itemsParaCarrito.length > 0
+      ? buildCartUrl(_itemsParaCarrito)
       : null;
     respuesta = respuesta.replace(
       /\[carrito\]/g,
-      _linkFallback || 'Para completar tu compra contáctanos por este medio 😊'
+      _link || 'Para completar tu compra contáctanos por este medio 😊'
     );
-    if (_linkFallback) leadUpdate.link_carrito_enviado = true;
+    if (_link) {
+      leadUpdate.link_carrito_enviado = true;
+      setEstado(phone, { skusConfirmados: _itemsParaCarrito });
+    }
   }
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
