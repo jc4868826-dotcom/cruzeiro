@@ -441,7 +441,15 @@ Al presentar opciones al cliente muestra SOLO: nombre del producto y precio. El 
 CATÁLOGO DE PRODUCTOS DISPONIBLES
 Solo estos puedes ofrecer — nunca inventes otros
 ═══════════════════════════════════
-${catalogoTexto}`;
+${catalogoTexto}
+
+═══════════════════════════════════
+REGLA CRÍTICA — ANTI-ALUCINACIÓN
+═══════════════════════════════════
+Solo puedes mencionar productos que estén explícitamente listados en el CATÁLOGO DE PRODUCTOS DISPONIBLES que aparece arriba.
+Si el cliente pide algo que NO aparece en el catálogo, responde exactamente: "No tenemos ese producto en catálogo, pero puedo ayudarte con [menciona categorías relacionadas que sí tenemos]."
+NUNCA inventes nombres, precios, medidas o características de productos.
+NUNCA menciones un precio que no esté en el catálogo entregado.`;
 }
 
 async function clasificarIntencionProducto(historialCliente, textoActual) {
@@ -925,6 +933,19 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
 
     leadUpdate.link_carrito_enviado = true;
+  }
+
+  // ── Reemplazo de [carrito] independiente del marker [SKU:...] ─────────────
+  if (respuesta.includes('[carrito]')) {
+    const _itemsFallback = (productosCtx || [])
+      .filter(p => p.sku)
+      .map(p => ({ sku: p.sku, quantity: 1 }));
+    const _linkFallback = _itemsFallback.length > 0 ? buildCartUrl(_itemsFallback) : null;
+    respuesta = respuesta.replace(
+      /\[carrito\]/g,
+      _linkFallback || 'Para completar tu compra contáctanos por este medio 😊'
+    );
+    if (_linkFallback) leadUpdate.link_carrito_enviado = true;
   }
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
