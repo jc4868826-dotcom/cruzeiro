@@ -223,9 +223,11 @@ function clasificarPorRut(rutRaw) {
   };
 }
 
-// ─── Búsqueda de productos — 3 capas ─────────────────────────────────────────
+// ─── Búsqueda de productos ────────────────────────────────────────────────────
 
 const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+const STOPWORDS = new Set(['de','la','el','los','las','para','con','sin','un','una','en','y','o','por','que','del','al','se','es']);
 
 function _buscarEnUsos(termino, tokens) {
   const usos = dataStore.getUsos();
@@ -260,122 +262,86 @@ function _buscarEnUsos(termino, tokens) {
   return mejorCategoria;
 }
 
-function _buscarPorFamilia(familia, canal) {
-  if (!familia) return [];
-  const famNorm = _norm(familia);
+function buscarProductos(termino, canal, opciones = {}) {
+  // PASO 1: Tokenizar con sinónimos y stopwords
+  const queryConSinonimos = _aplicarSinonimos(termino);
+  const queryNorm = _norm(queryConSinonimos);
+  const tokens = queryNorm.split(/\s+/).filter(t => t && !STOPWORDS.has(t));
+  if (!tokens.length) return { productos: [], conocimientoTecnico: '', totalEncontrados: 0, query: queryNorm };
+
+  // PASO 2: Buscar directo en el catálogo según canal
+  let todos;
 
   if (canal === 'mayorista') {
-    return dataStore.getCatalogo()
-      .filter(p => {
-        if (!p.precio_mayorista || p.precio_mayorista <= 1) return false;
-        return [p.subcategoria, p.familia, p.padre_familia, p.categoria]
-          .some(f => { const fn = _norm(f); return fn && (fn.includes(famNorm) || famNorm.includes(fn)); });
-      }).slice(0, 10);
+    todos = dataStore.getMaestraProductos()
+      .map(p => {
+        const precio = Number(p.precioVenta || 0);
+        if (precio <= 1) return null;
+        if (p.stock != null && p.stock === 0) return null;
+        const texto = _norm([p.descripcion || '', p.familia || '', p.padreFamilia || ''].join(' '));
+        const hits = tokens.filter(t => texto.includes(t)).length;
+        const score = hits / tokens.length;
+        if (score < 0.4) return null;
+        return {
+          _score: score,
+          sku:              p.sku || '',
+          nombre_web:       p.descripcion || '',
+          descripcion:      p.descripcion || '',
+          precio:           precio,
+          precio_web:       0,
+          precio_mayorista: precio,
+          subcategoria:     p.familia || '',
+          familia:          p.familia || '',
+          categoria:        p.padreFamilia || '',
+          unidad:           p.unidad || 'C/U',
+          stock:            p.stock != null ? p.stock : null,
+        };
+      })
+      .filter(Boolean);
+  } else {
+    // Ecommerce: solo web.xlsx
+    todos = dataStore.getWebProductos()
+      .map(p => {
+        const precio = Number(p.precio || 0);
+        if (precio <= 1) return null;
+        const texto = _norm([p.nombreWeb || '', p.descripcionCorta || '', p.categoria || '', p.subcategoria || ''].join(' '));
+        const hits = tokens.filter(t => texto.includes(t)).length;
+        const score = hits / tokens.length;
+        if (score < 0.4) return null;
+        return {
+          _score: score,
+          sku:              p.sku || '',
+          nombre_web:       p.nombreWeb || '',
+          descripcion:      p.descripcionCorta || p.nombreWeb || '',
+          precio:           precio,
+          precio_web:       precio,
+          precio_mayorista: 0,
+          subcategoria:     p.subcategoria || '',
+          familia:          p.subcategoria || '',
+          categoria:        p.categoria || '',
+          unidad:           'C/U',
+          stock:            null,
+          imagen:           p.urlImagen || '',
+        };
+      })
+      .filter(Boolean);
   }
 
-  // Ecommerce: solo web.xlsx (camelCase por loaders.js)
-  return dataStore.getWebProductos()
-    .filter(p => {
-      const precio = Number(p.precio || 0);
-      if (precio <= 1) return false;
-      return [p.subcategoria || '', p.categoria || '', p.nombreWeb || ''].some(f => {
-        const fn = _norm(f); return fn && (fn.includes(famNorm) || famNorm.includes(fn));
-      });
-    }).slice(0, 10)
-    .map(p => ({
-      sku:              p.sku || '',
-      nombre_web:       p.nombreWeb || '',
-      descripcion:      p.nombreWeb || '',
-      precio:           Number(p.precio || 0),
-      precio_web:       Number(p.precio || 0),
-      precio_mayorista: 0,
-      subcategoria:     p.subcategoria || '',
-      familia:          p.subcategoria || '',
-      categoria:        p.categoria || '',
-      unidad:           'C/U',
-      stock:            null,
-      imagen:           p.urlImagen || '',
-    }));
-}
+  // PASO 3: Ordenar por score desc, luego precio asc
+  todos.sort((a, b) => b._score - a._score || a.precio - b.precio);
 
-function _buscarTextoLibre(tokens, fuente, canal) {
-  const items = fuente === 'web'
-    ? dataStore.getWebProductos()
-    : dataStore.getMaestraProductos();
+  const totalEncontrados = todos.length;
+  const productos = todos.slice(0, 10).map(({ _score, ...rest }) => rest);
 
-  const scored = items
-    .map(p => {
-      const texto = [
-        p.subcategoria || '',
-        p.categoria    || '',
-        p.nombreWeb    || p.descripcion || '',
-        p.descripcionCorta || '',
-      ].join(' ');
-      const score = tokens.filter(t => _norm(texto).includes(t)).length;
-      return { ...p, _score: score };
-    })
-    .filter(p => p._score > 0)
-    .sort((a, b) => b._score - a._score)
-    .slice(0, 8);
-
-  if (!scored.length) return [];
-
-  if (fuente === 'web') {
-    return scored
-      .filter(p => Number(p.precio || 0) > 1)
-      .map(p => ({
-        sku:              p.sku || '',
-        nombre_web:       p.nombreWeb || '',
-        descripcion:      p.nombreWeb || '',
-        precio:           Number(p.precio || 0),
-        precio_web:       Number(p.precio || 0),
-        precio_mayorista: 0,
-        subcategoria:     p.subcategoria || '',
-        familia:          p.subcategoria || '',
-        categoria:        p.categoria || '',
-        unidad:           'C/U',
-        stock:            null,
-        imagen:           p.urlImagen || '',
-      }));
+  // PASO 4: Enriquecer con Usos_Especificaciones (solo contexto GPT)
+  const familiaUso = _buscarEnUsos(queryConSinonimos, tokens);
+  let conocimientoTecnico = '';
+  if (familiaUso) {
+    const uso = dataStore.getUsos().find(u => u.categoria === familiaUso);
+    if (uso) conocimientoTecnico = uso.conocimiento || '';
   }
 
-  // Mayorista: Maestra directamente (camelCase por loaders.js)
-  return scored
-    .filter(p => Number(p.precioVenta || 0) > 1)
-    .map(p => ({
-      sku:              p.sku || '',
-      nombre_web:       p.descripcion || '',
-      descripcion:      p.descripcion || '',
-      precio:           Number(p.precioVenta || 0),
-      precio_web:       0,
-      precio_mayorista: Number(p.precioVenta || 0),
-      subcategoria:     p.familia || '',
-      familia:          p.familia || '',
-      categoria:        p.padreFamilia || '',
-      unidad:           p.unidad || 'C/U',
-      stock:            null,
-    }));
-}
-
-function buscarProductos(termino, canal, opciones = {}) {
-  const queryNormalizada = _aplicarSinonimos(termino);
-  const tokens = _norm(queryNormalizada).split(/\s+/).filter(t => t.length > 3);
-  if (!tokens.length) return { resultados: [], capa: 0 };
-
-  const fuente = canal === 'mayorista' ? 'maestra' : 'web';
-
-  // CAPA 1: Usos_Especificaciones → familia → archivo correcto según canal
-  const familia = _buscarEnUsos(queryNormalizada, tokens);
-  if (familia) {
-    const resultados = _buscarPorFamilia(familia, canal);
-    if (resultados.length > 0) return { resultados, capa: 1, familia };
-  }
-
-  // CAPA 2: texto libre en el archivo correcto según canal
-  const resultados2 = _buscarTextoLibre(tokens, fuente, canal);
-  if (resultados2.length > 0) return { resultados: resultados2, capa: 2 };
-
-  return { resultados: [], capa: 0 };
+  return { productos, conocimientoTecnico, totalEncontrados, query: queryNorm };
 }
 
 module.exports = {

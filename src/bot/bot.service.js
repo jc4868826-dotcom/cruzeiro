@@ -870,7 +870,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   const canalActual = estadoActual?.canal || conversacionExistente?.canal || 'ecommerce';
   const queryProductos = [...mensajesCliente, texto].join(' ');
-  const { resultados: productosCtx } = datos.buscarProductos(queryProductos, canalActual);
+  const { productos: productosCtx } = datos.buscarProductos(queryProductos, canalActual);
   const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
 
   // Guardar productos del contexto en estado (para carrito)
