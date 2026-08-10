@@ -3,27 +3,77 @@ const dataStore = require('../data/dataStore');
 
 // ─── Sinónimos de búsqueda ───────────────────────────────────────────────────
 const SINONIMOS_BUSQUEDA = {
-  'basurero':  'contenedor basura',
-  'basureros': 'contenedor basura',
-  'tacho':     'contenedor basura',
-  'tachos':    'contenedor basura',
-  'papelero':  'contenedor basura',
-  'papeleros': 'contenedor basura',
-  'zocalo':    'perfil zocalo',
-  'zocalos':   'perfil zocalo',
-  'tapete':    'alfombra piso',
-  'tapetes':   'alfombra piso',
-  'caucho':    'goma',
-  'cauchos':   'goma',
-  'cinta':     'banda transportadora',
-  'sello':     'perfil sellante',
-  'sellos':    'perfil sellante',
+  // Basureros
+  'basurero':            'contenedor basura',
+  'basureros':           'contenedor basura',
+  'tacho':               'contenedor basura',
+  'tachos':              'contenedor basura',
+  'papelero':            'contenedor basura papelero',
+  'papeleros':           'contenedor basura papelero',
+  'cubo basura':         'contenedor basura',
+  // Bolsas
+  'bolsa basura':        'bolsa basura negra',
+  'bolsas basura':       'bolsa basura negra',
+  'bolsa residuos':      'bolsa basura negra',
+  // Mangueras
+  'manguera':            'manguera riego jardin',
+  'mangueras':           'manguera riego jardin',
+  'manguera riego':      'manguera riego jardin',
+  'manguera agua':       'manguera riego jardin',
+  // Pisos
+  'caucho':              'piso goma',
+  'cauchos':             'piso goma',
+  'tapete':              'alfombra piso nomad',
+  'tapetes':             'alfombra piso nomad',
+  'felpudo':             'alfombra entrada',
+  'peldano':             'grada escalera',
+  'escalon':             'grada escalera',
+  'pastelón':            'pastelón goma',
+  'pastelon':            'pastelón goma',
+  // Adhesivos
+  'pegamento':           'adhesivo',
+  'cola fria':           'adhesivo',
+  'agorex':              'adhesivo',
+  'gobusa':              'adhesivo gobusa',
+  // Seguridad vial
+  'lomo toro':           'lomo toro rampa',
+  'lomillo':             'lomo toro rampa',
+  'tacha':               'tacha reflectante',
+  'tachas':              'tacha reflectante',
+  'cono':                'cono seguridad vial',
+  'conos':               'cono seguridad vial',
+  // Perfiles
+  'zocalo':              'perfil zocalo rodón',
+  'zocalos':             'perfil zocalo rodón',
+  'rodon':               'rodón perfil',
+  'rodón':               'rodón perfil',
+  // Limpieza
+  'escoba':              'trapero mopa limpieza',
+  'trapero':             'trapero mopa piso',
+  'detergente':          'detergente limpieza ropa',
+  'cloro':               'cloro desinfectante',
+  'desengrasante':       'desengrasante limpieza',
+  // Zapatillas/seguridad
+  'zapatilla seguridad': 'zapato seguridad industrial',
+  'zapato seguridad':    'zapato seguridad industrial',
+  'bota seguridad':      'bota seguridad industrial',
+  // Organización
+  'organizador':         'caja organizadora',
+  'cajas':               'caja organizadora almacenamiento',
 };
 
 function _aplicarSinonimos(query) {
-  return query.toLowerCase().split(/\s+/).map(token =>
-    SINONIMOS_BUSQUEDA[token] || token
-  ).join(' ');
+  let q = query.toLowerCase().trim();
+  // Aplicar frases largas primero para evitar solapamiento
+  const entradas = Object.entries(SINONIMOS_BUSQUEDA)
+    .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length || b[0].length - a[0].length);
+  for (const [k, v] of entradas) {
+    const re = new RegExp('(^|\\s)' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=\\s|$)', 'g');
+    q = q.replace(re, `$1${v}`);
+  }
+  // Deduplicar tokens resultantes (evita expansión doble)
+  const seen = new Set();
+  return q.trim().split(/\s+/).filter(t => t && !seen.has(t) && seen.add(t)).join(' ');
 }
 
 // ─── Búsquedas ────────────────────────────────────────────────────────────────
@@ -278,12 +328,14 @@ function buscarProductos(termino, canal, opciones = {}) {
         const precio = Number(p.precioVenta || 0);
         if (precio <= 1) return null;
         if (p.stock != null && p.stock === 0) return null;
-        const texto = _norm([p.descripcion || '', p.familia || '', p.padreFamilia || ''].join(' '));
-        const hits = tokens.filter(t => texto.includes(t)).length;
-        const score = hits / tokens.length;
-        if (score < 0.4) return null;
+        const textoNombre = _norm(p.descripcion || '');
+        const textoCategoria = _norm((p.padreFamilia || '') + ' ' + (p.familia || ''));
+        const hitsNombre = tokens.filter(t => textoNombre.includes(t)).length;
+        const hitsCategoria = tokens.filter(t => textoCategoria.includes(t)).length;
+        const scorePonderado = (hitsNombre * 3 + hitsCategoria * 2) / (tokens.length * 3);
+        if (scorePonderado < 0.3) return null;
         return {
-          _score: score,
+          _score: scorePonderado,
           sku:              p.sku || '',
           nombre_web:       p.descripcion || '',
           descripcion:      p.descripcion || '',
@@ -304,12 +356,18 @@ function buscarProductos(termino, canal, opciones = {}) {
       .map(p => {
         const precio = Number(p.precio || 0);
         if (precio <= 1) return null;
-        const texto = _norm([p.nombreWeb || '', p.descripcionCorta || '', p.categoria || '', p.subcategoria || ''].join(' '));
-        const hits = tokens.filter(t => texto.includes(t)).length;
-        const score = hits / tokens.length;
-        if (score < 0.4) return null;
+        // Expandir abreviaturas conocidas del catálogo ("Mang." → "manguera")
+        const nombreExpand = (p.nombreWeb || '').replace(/\bMang\b\.?/gi, 'manguera');
+        const textoNombre = _norm(nombreExpand);
+        const textoDesc = _norm(p.descripcionCorta || '');
+        const textoCategoria = _norm((p.categoria || '') + ' ' + (p.subcategoria || ''));
+        const hitsNombre = tokens.filter(t => textoNombre.includes(t)).length;
+        const hitsDesc = tokens.filter(t => textoDesc.includes(t)).length;
+        const hitsCategoria = tokens.filter(t => textoCategoria.includes(t)).length;
+        const scorePonderado = (hitsNombre * 3 + hitsCategoria * 2 + hitsDesc * 1) / (tokens.length * 3);
+        if (scorePonderado < 0.3) return null;
         return {
-          _score: score,
+          _score: scorePonderado,
           sku:              p.sku || '',
           nombre_web:       p.nombreWeb || '',
           descripcion:      p.descripcionCorta || p.nombreWeb || '',
