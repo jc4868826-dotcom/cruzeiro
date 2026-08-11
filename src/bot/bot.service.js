@@ -38,6 +38,8 @@ const _STATE_DEFAULTS = {
   cart: [],
   awaitingMore: false,
   awaitingConfirmation: false,
+  awaitingQty: false,
+  selectedItem: null,
 };
 
 function _sessionPath(phone) {
@@ -528,25 +530,23 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
           role: m.rol === 'cliente' ? 'user' : 'assistant',
           content: m.texto,
         })),
-        { role: 'system', content: `REGLAS DE RESPUESTA — LEE ANTES DE RESPONDER:
+        { role: 'system', content: `REGLAS ABSOLUTAS — responde siempre en español chileno:
 
-1. NUNCA digas "agregué", "añadí" ni "guardé" nada al pedido en tu respuesta.
-   El sistema maneja el carrito automáticamente.
-   Solo confirma lo que el cliente eligió: "Perfecto, [nombre del producto]. ¿Necesitas algo más?"
+1. Cuando el cliente elige un producto, pregunta SOLO: "¿Cuántas unidades necesitas?"
+   Una sola pregunta. No digas "lo agregué" ni generes ningún link.
 
-2. NUNCA generes un link de carrito. NUNCA escribas [carrito].
-   El link lo genera el sistema cuando el cliente confirme el pedido completo.
+2. Cuando el cliente da la cantidad, confirma brevemente qué quedó en el pedido
+   y pregunta: "¿Necesitas algo más?"
 
-3. Cuando el cliente diga "eso es todo", "listo", "nada más" o similar,
-   responde SOLO con: "Perfecto, ¿confirmas el pedido para que te envíe el link de compra?"
-   No hagas resumen — el sistema lo genera automáticamente.
+3. NUNCA digas "agregué", "guardé" ni "añadí" nada. El sistema lo maneja.
 
-4. NUNCA preguntes el RUT para confirmar un pedido de compra.
-   El RUT solo se pide para consultas de estado de pedidos ya realizados.
+4. NUNCA escribas [carrito] ni generes links. El sistema envía el link automáticamente.
 
-5. Si el cliente pide el link del carrito directamente,
-   responde: "Dame un momento, generando tu link..."
-   El sistema lo enviará automáticamente.` },
+5. NUNCA preguntes el RUT para confirmar un pedido de compra.
+
+6. Si el cliente dice "eso es todo" o similar, responde SOLO:
+   "Perfecto, revisando tu pedido..."
+   El sistema mostrará el resumen automáticamente.` },
         ...(systemHint ? [{ role: 'system', content: systemHint }] : []),
         { role: 'user', content: texto },
       ],
@@ -669,7 +669,7 @@ async function migrarEtapasLegacy() {
 
 function _esCierreCarrito(texto) {
   const t = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-  return /\b(eso es todo|es todo|nada mas|nada m[aá]s|con eso|eso nomas|eso nom[aá]s|solo eso|ya esta|ya est[aá]|por ahora es todo|es todo por ahora|con eso basta|no necesito mas|no necesito nada mas|con eso esta bien|con eso est[aá] bien|no con eso|listo\s+gracias|con\s+eso\s+me\s+alcanza|eso\s+me\s+basta)\b/.test(t);
+  return /\b(eso es todo|es todo|nada mas|con eso|eso nomas|solo eso|ya esta|por ahora es todo|es todo por ahora|con eso basta|no necesito mas|no necesito nada mas|con eso esta bien|no con eso|listo gracias|con eso me alcanza|eso me basta|no gracias|solo eso necesito)\b/.test(t);
 }
 
 function _esConfirmacionPedido(texto) {
@@ -680,17 +680,15 @@ function _esModificacionCarrito(texto) {
   return /\b(agrega|agr[eé]game|a[ñn]ade|a[ñn][aá]deme|quita|saca|elimina|cambia la cantidad|en realidad quiero|en realidad)\b/i.test(texto.toLowerCase());
 }
 
-// Retorna array de {item, qty} — puede ser más de un ítem si el cliente
-// especifica cantidades de varios productos en el mismo mensaje.
+// Retorna {item, qty} — un solo ítem con cantidad=1 por defecto.
+// El nuevo flujo de awaitingQty maneja la cantidad en un paso separado.
 // Retorna null si no detecta ninguna selección válida.
 function _detectarSeleccionPendingSkus(texto, pendingSkus) {
   if (!pendingSkus || !pendingSkus.length) return null;
   const t = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
   function _resolverItem(fragmento, lista) {
     const f = fragmento.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-    // Ordinales
     const ordinals = [
       { re: /primer[ao]?|^1$|el\s+1|la\s+1|numero\s*1|opci[oó]n\s*1/, idx: 0 },
       { re: /segund[ao]?|^2$|el\s+2|la\s+2|numero\s*2|opci[oó]n\s*2/, idx: 1 },
@@ -699,56 +697,29 @@ function _detectarSeleccionPendingSkus(texto, pendingSkus) {
     for (const { re, idx } of ordinals) {
       if (re.test(f) && lista[idx]) return lista[idx];
     }
-    // Superlativos
     if (/mas barato|mas economico|mas barata|mas economica|menor precio/.test(f))
       return [...lista].sort((a, b) => a.precio - b.precio)[0] || null;
     if (/mas caro|mas grande|mayor precio|mas costoso|mas cara/.test(f))
       return [...lista].sort((a, b) => b.precio - a.precio)[0] || null;
-    // Palabra clave del nombre del producto
     for (const item of lista) {
       const nombreNorm = item.nombre.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
       const palabras = f.split(/\s+/).filter(p => p.length > 3);
       if (palabras.some(p => nombreNorm.includes(p))) return item;
     }
-    // Único ítem + confirmación simple
     if (lista.length === 1 && /^(si|dale|ok|ese|esa|bueno|claro|perfecto|de acuerdo|eso|confirmo)\b/.test(f))
       return lista[0];
     return null;
   }
 
-  // ── Caso 1: número suelto (solo dígito, sin texto adicional) ─────────────
+  // Número suelto — índice de opción
   const _bareNum = t.match(/^(\d{1,2})$/);
   if (_bareNum) {
     const n = parseInt(_bareNum[1]);
-    if (pendingSkus.length === 1 && n >= 1 && n <= 10)
-      return [{ item: pendingSkus[0], qty: n }];
-    if (n >= 1 && n <= pendingSkus.length)
-      return [{ item: pendingSkus[n - 1], qty: 1 }];
+    if (n >= 1 && n <= pendingSkus.length) return { item: pendingSkus[n - 1], qty: 1 };
   }
 
-  // ── Caso 2: múltiples cantidades y productos en un mensaje ───────────────
-  // Detecta "2 contenedores y 10 bolsas" o "quiero 3 del primero y 5 del segundo"
-  const _multiMatch = [];
-  const _numRegex = /(\d+)\s+(?:unidades?\s+(?:de\s+)?)?(.{3,40}?)(?:\s+y\s+|$|,)/gi;
-  let _m;
-  while ((_m = _numRegex.exec(texto)) !== null) {
-    const qty = parseInt(_m[1]);
-    const fragmento = _m[2].trim();
-    const item = _resolverItem(fragmento, pendingSkus);
-    if (item && qty >= 1 && qty <= 999) {
-      if (!_multiMatch.find(x => x.item.sku === item.sku)) {
-        _multiMatch.push({ item, qty });
-      }
-    }
-  }
-  if (_multiMatch.length > 0) return _multiMatch;
-
-  // ── Caso 3: selección simple (un solo ítem) ───────────────────────────────
-  const qtyMatch = texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg|contenedores?|basureros?)\b/i)
-                || texto.match(/\bquiero\s+(\d+)\b/i);
-  const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1])) : 1;
   const item = _resolverItem(t, pendingSkus);
-  if (item) return [{ item, qty }];
+  if (item) return { item, qty: 1 };
 
   return null;
 }
@@ -1014,14 +985,14 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     .map(m => m.texto);
 
   const queryAcumulado = [...mensajesCliente, ...mensajesBot, texto].join(' ');
-  const canalActual = estadoActual?.canal || conversacionExistente?.canal || 'ecommerce';
+  const canalActual = (estadoActual?.canal || conversacionExistente?.canal || 'ecommerce').toLowerCase().trim();
   const { buildCartUrl } = require('../utils/wooCart');
 
   // ── PASO E: Confirmación final del carrito ────────────────────────────────
   if (estadoActual.awaitingConfirmation && _esConfirmacionPedido(texto)) {
     const _cartItems = estadoActual.cart || [];
     let _respE;
-    if (_cartItems.length > 0 && canalActual === 'ecommerce') {
+    if (_cartItems.length > 0 && (canalActual === 'ecommerce' || !canalActual)) {
       const _url = buildCartUrl(_cartItems);
       if (_url) {
         _respE = `¡Listo! 🛒 Aquí está tu link para completar la compra:\n${_url}`;
@@ -1063,7 +1034,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── PASO D: Cliente cierra el pedido ──────────────────────────────────────
   {
     const _estadoD = getEstado(phone);
-    if (_estadoD.awaitingMore && _esCierreCarrito(texto) && (_estadoD.cart || []).length > 0) {
+    if (_estadoD.awaitingMore && !_estadoD.awaitingQty && _esCierreCarrito(texto) && (_estadoD.cart || []).length > 0) {
       const _respD = _buildResumenCarrito(_estadoD.cart);
       setEstado(phone, { awaitingMore: false, awaitingConfirmation: true });
       const _convD = await _guardarMensajes(phone, texto, _respD, conversacionExistente, canal_tipo);
@@ -1071,49 +1042,92 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
-  // ── PASO B: Cliente elige opción de pendingSkus ───────────────────────────
-  // Resolución sin buscarProductos() — los datos vienen de session.pendingSkus
+  // ── PASO B2: Cliente responde cantidad para ítem ya elegido ──────────────
   let _systemHint = null;
-  let _pasoB = false;
+  let _pasoB2 = false;
   {
-    const _estadoB = getEstado(phone);
-    if (_estadoB.awaitingMore && (_estadoB.pendingSkus || []).length > 0) {
-      const _selecs = _detectarSeleccionPendingSkus(texto, _estadoB.pendingSkus);
-      if (_selecs && _selecs.length > 0) {
-        const _cartActual = _estadoB.cart || [];
+    const _estB2 = getEstado(phone);
+    if (_estB2.awaitingQty && _estB2.selectedItem) {
+      const _qtyMatch = texto.match(/^(\d+)$/)
+                     || texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg|contenedores?|basureros?)\b/i)
+                     || texto.match(/\bquiero\s+(\d+)\b/i)
+                     || texto.match(/\bnecesito\s+(\d+)\b/i)
+                     || texto.match(/\b(\d+)\s*(?:por favor|porfavor|nomas|nom[aá]s)?\s*$/i);
+      if (_qtyMatch) {
+        const _qty = Math.max(1, parseInt(_qtyMatch[1]));
+        const _item = _estB2.selectedItem;
+        const _cartActual = _estB2.cart || [];
+        const _idx = _cartActual.findIndex(c => c.sku === _item.sku);
         const _cartNuevo = [..._cartActual];
-        for (const { item: _item, qty: _qty } of _selecs) {
-          const _idx = _cartNuevo.findIndex(c => c.sku === _item.sku);
+        if (_idx >= 0) {
+          _cartNuevo[_idx] = { ..._cartNuevo[_idx], qty: _qty };
+        } else {
+          _cartNuevo.push({ ..._item, qty: _qty });
+        }
+        setEstado(phone, { cart: _cartNuevo, selectedItem: null, awaitingQty: false, awaitingMore: true });
+        _systemHint = `El cliente confirmó ${_qty} unidad(es) de "${_item.nombre}".
+Confirma brevemente: "Perfecto, ${_qty} ${_item.nombre}."
+Luego pregunta: "¿Necesitas algo más?"
+NO muestres SKU ni precio. NO digas "agregué".`;
+        _pasoB2 = true;
+      } else if (_esCierreCarrito(texto)) {
+        const _item = _estB2.selectedItem;
+        _systemHint = `El cliente quiere cerrar el pedido pero aún no indicó cuántas unidades de "${_item.nombre}" necesita. Pregunta SOLO: "¿Cuántas unidades de ${_item.nombre} necesitas?"`;
+        _pasoB2 = true;
+      }
+    }
+  }
+
+  // ── PASO B: Cliente elige producto de pendingSkus ─────────────────────────
+  let _pasoB = false;
+  if (!_pasoB2) {
+    const _estadoB = getEstado(phone);
+    if (_estadoB.awaitingMore && !_estadoB.awaitingQty && (_estadoB.pendingSkus || []).length > 0) {
+      const _selec = _detectarSeleccionPendingSkus(texto, _estadoB.pendingSkus);
+      if (_selec) {
+        const _qtyEnMensaje = texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg|contenedores?|basureros?)\b/i)
+                           || texto.match(/\bquiero\s+(\d+)\b/i)
+                           || texto.match(/\bnecesito\s+(\d+)\b/i);
+        const _item = _selec.item || _selec[0]?.item;
+        const _qty  = _qtyEnMensaje ? Math.max(1, parseInt(_qtyEnMensaje[1])) : null;
+
+        if (_qty) {
+          const _cartActual = _estadoB.cart || [];
+          const _idx = _cartActual.findIndex(c => c.sku === _item.sku);
+          const _cartNuevo = [..._cartActual];
           if (_idx >= 0) {
             _cartNuevo[_idx] = { ..._cartNuevo[_idx], qty: _qty };
           } else {
             _cartNuevo.push({ ..._item, qty: _qty });
           }
+          setEstado(phone, { cart: _cartNuevo, pendingSkus: [], selectedItem: null, awaitingQty: false, awaitingMore: true });
+          _systemHint = `El cliente eligió "${_item.nombre}" y necesita ${_qty} unidades. Ya fue agregado al pedido.
+Confirma brevemente: "Perfecto, ${_qty} ${_item.nombre}."
+Luego pregunta: "¿Necesitas algo más?"
+NO digas "agregué".`;
+        } else {
+          setEstado(phone, { selectedItem: _item, pendingSkus: [], awaitingQty: true, awaitingMore: true });
+          _systemHint = `El cliente eligió "${_item.nombre}" (SKU: ${_item.sku}, precio: $${Number(_item.precio).toLocaleString('es-CL')}).
+Pregunta SOLO: "¿Cuántas unidades necesitas?"
+No agregues nada más al mensaje. Una sola pregunta.`;
         }
-        setEstado(phone, { cart: _cartNuevo, pendingSkus: [], awaitingMore: true });
-        const _nombresAgregados = _selecs.map(s => `"${s.item.nombre}" × ${s.qty}`).join(', ');
-        _systemHint = `El cliente agregó al pedido: ${_nombresAgregados}.
-Confirma brevemente qué fue agregado con nombre y cantidad.
-Luego pregunta amablemente si necesita algo más.
-NO muestres SKU ni precio de nuevo.
-NO digas "agregué" sin confirmar exactamente qué y cuánto.`;
         _pasoB = true;
       }
     }
   }
 
-  // ── PASO B-hint: múltiples opciones pendientes → GPT no debe anticipar cantidad ──
-  if (!_pasoB) {
+  // ── PASO B-hint: múltiples opciones sin elegir → GPT no anticipa cantidad ──
+  if (!_pasoB && !_pasoB2) {
     const _estHint = getEstado(phone);
-    if (_estHint.awaitingMore && (_estHint.pendingSkus || []).length > 1) {
+    if (_estHint.awaitingMore && !_estHint.awaitingQty && (_estHint.pendingSkus || []).length > 1) {
       _systemHint = 'El cliente aún NO ha elegido cuál de las opciones quiere. NO preguntes cuántas unidades quiere todavía — primero pregunta CUÁL de las opciones prefiere. Espera la elección antes de cualquier otra pregunta.';
     }
   }
 
-  // Buscar productos (se omite en PASO B — datos vienen de pendingSkus, no del texto)
+  // Buscar productos (se omite en PASO B/B2 — datos vienen de pendingSkus o selectedItem)
   let productosCtx = [];
   let conocimientoCtx = [];
-  if (!_pasoB) {
+  if (!_pasoB && !_pasoB2) {
     const _queryProductos = [mensajesCliente.slice(-1)[0] || '', texto].filter(Boolean).join(' ');
     const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
     productosCtx = _prods;
