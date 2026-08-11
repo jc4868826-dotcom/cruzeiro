@@ -2,28 +2,42 @@
 
 const dataStore = require('../data/dataStore');
 
-function buildCartUrl(items) {
-  if (!Array.isArray(items) || !items.length) return null;
-  const wooMap = dataStore.getWooMap();
-  console.log('[wooCart] items recibidos:', JSON.stringify(items));
-  console.log('[wooCart] wooMap total:', Object.keys(wooMap).length, 'entradas');
-  const params = new URLSearchParams();
-  let alguno = false;
-  for (const item of items) {
-    const sku = item.sku || item.SKU;
-    const qty = Math.max(1, parseInt(item.quantity || item.cantidad) || 1);
-    const wooId = wooMap[sku] || wooMap[sku?.toUpperCase()];
-    if (!wooId) { console.warn('[wooCart] SKU sin WooID:', sku); continue; }
-    params.append('add-to-cart[]', wooId);
-    params.append('quantity[]', qty);
-    alguno = true;
+async function shortenUrl(longUrl) {
+  try {
+    const response = await fetch(
+      `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    if (!response.ok) throw new Error('fallo');
+    const short = await response.text();
+    if (short.startsWith('https://tinyurl.com/')) return short;
+    throw new Error('respuesta inválida');
+  } catch {
+    return longUrl; // fallback: URL larga si TinyURL falla
   }
-  if (!alguno) return null;
-  return `https://cruzeirogomas.cl/carrito/?${params.toString()}`;
 }
 
-// Alias para compatibilidad con llamadas existentes que usan { sku, cantidad }
-function generarLinkCarrito(skusConfirmados) {
+// Acepta dos formatos:
+//   - session.cart items:  { sku, wooId, nombre, precio, qty }
+//   - items legados:       { sku, quantity }  (resuelve wooId desde WooMap)
+async function buildCartUrl(cartItems) {
+  if (!cartItems || !cartItems.length) return null;
+  const wooMapData = dataStore.getWooMap();
+  const params = [];
+  for (const item of cartItems) {
+    const sku = item.sku || item.SKU;
+    const qty = Math.max(1, parseInt(item.qty || item.quantity || item.cantidad) || 1);
+    const wooId = item.wooId || wooMapData[sku] || wooMapData[sku?.toUpperCase()];
+    if (!wooId) { console.warn('[wooCart] SKU sin WooID:', sku); continue; }
+    params.push(`add-to-cart%5B${wooId}%5D=${qty}`);
+  }
+  if (!params.length) return null;
+  const longUrl = `https://cruzeirogomas.cl/carrito/?${params.join('&')}`;
+  console.log('[wooCart] longUrl:', longUrl);
+  return await shortenUrl(longUrl);
+}
+
+async function generarLinkCarrito(skusConfirmados) {
   if (!Array.isArray(skusConfirmados) || !skusConfirmados.length) return null;
   return buildCartUrl(skusConfirmados.map(s => ({ sku: s.sku, quantity: s.cantidad || 1 })));
 }

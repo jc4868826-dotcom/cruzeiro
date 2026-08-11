@@ -22,6 +22,9 @@ function getEstado(phone) {
     intentos_rut_fallidos: 0,
     skusConfirmados: [],
     pendingSkus: [],
+    cart: [],
+    awaitingMore: false,
+    awaitingConfirmation: false,
   };
 }
 
@@ -495,7 +498,7 @@ Máximo 3 subcategorías. Solo subcategorías de la lista.`
   } catch { return null; }
 }
 
-async function llamarOpenAI(texto, productosContexto, historial = [], contextoCliente = null, conocimientoContexto = null) {
+async function llamarOpenAI(texto, productosContexto, historial = [], contextoCliente = null, conocimientoContexto = null, systemHint = null) {
   const openai = getOpenAI();
   if (!openai) return null;
   try {
@@ -508,6 +511,7 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
           content: m.texto,
         })),
         { role: 'system', content: `RECORDATORIO FINAL: Cuando el cliente confirme su elección de producto, escribe inmediatamente: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?" El sistema genera el link automáticamente al detectar [carrito]. NO necesitas escribir nada más que [carrito].` },
+        ...(systemHint ? [{ role: 'system', content: systemHint }] : []),
         { role: 'user', content: texto },
       ],
       max_tokens: 500,
@@ -623,6 +627,63 @@ async function migrarEtapasLegacy() {
   } catch (e) {
     console.error('[bot] Error en migración de etapas:', e.message);
   }
+}
+
+// ─── Cart session helpers ─────────────────────────────────────────────────────
+
+function _esCierreCarrito(texto) {
+  return /^(eso es todo|es todo|nada m[aá]s|nada mas|con eso|eso nom[aá]s|eso nomas|solo eso|ya est[aá]|ya esta|por ahora es todo|es todo por ahora|con eso basta|listo)\b/i.test(texto.trim());
+}
+
+function _esConfirmacionPedido(texto) {
+  return /^(s[íi]|sí|si|dale|confirmo|ok|okay|perfecto|va|listo|yes|yep|claro|de acuerdo)\b/i.test(texto.toLowerCase().trim());
+}
+
+function _esModificacionCarrito(texto) {
+  return /\b(agrega|agr[eé]game|a[ñn]ade|a[ñn][aá]deme|quita|saca|elimina|cambia la cantidad|en realidad quiero|en realidad)\b/i.test(texto.toLowerCase());
+}
+
+function _detectarSeleccionPendingSkus(texto, pendingSkus) {
+  if (!pendingSkus || !pendingSkus.length) return null;
+  const t = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+
+  const qtyMatch = texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg)\b/i)
+                || texto.match(/\bquiero\s+(\d+)\b/i);
+  const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1])) : 1;
+
+  const ordinalPatterns = [
+    { re: /\b(el|la)?\s*(primer[ao]?|primera?)\b|\bel\s+1\b|\bla\s+1\b|\bnumero\s*1\b|\bopci[on]{1,2}\s*1\b/, idx: 0 },
+    { re: /\b(el|la)?\s*(segund[ao]?)\b|\bel\s+2\b|\bla\s+2\b|\bnumero\s*2\b|\bopci[on]{1,2}\s*2\b/, idx: 1 },
+    { re: /\b(el|la)?\s*(tercer[ao]?)\b|\bel\s+3\b|\bla\s+3\b|\bnumero\s*3\b|\bopci[on]{1,2}\s*3\b/, idx: 2 },
+  ];
+  for (const { re, idx } of ordinalPatterns) {
+    if (re.test(t) && pendingSkus[idx]) return { item: pendingSkus[idx], qty };
+  }
+
+  if (/mas barato|mas economico|mas barata|mas economica|menor precio|mas econ/.test(t)) {
+    const item = [...pendingSkus].sort((a, b) => a.precio - b.precio)[0];
+    return item ? { item, qty } : null;
+  }
+  if (/mas caro|mas grande|mayor precio|mas costoso|mas cara/.test(t)) {
+    const item = [...pendingSkus].sort((a, b) => b.precio - a.precio)[0];
+    return item ? { item, qty } : null;
+  }
+
+  if (pendingSkus.length === 1 &&
+      /^(s[íi]|dale|ok|ese|esa|ese mismo|esa misma|ese entonces|bueno|claro|perfecto|de acuerdo|eso)\b/.test(t)) {
+    return { item: pendingSkus[0], qty };
+  }
+
+  return null;
+}
+
+function _buildResumenCarrito(cart) {
+  const lineas = cart.map(item => {
+    const subtotal = item.precio * item.qty;
+    return `• ${item.nombre} × ${item.qty} — $${subtotal.toLocaleString('es-CL')}`;
+  });
+  const total = cart.reduce((s, i) => s + i.precio * i.qty, 0);
+  return `Acá está tu pedido:\n\n${lineas.join('\n')}\n\n*Total estimado: $${total.toLocaleString('es-CL')}*\n\n¿Confirmamos y te envío el link de compra?`;
 }
 
 // ─── Main processor ───────────────────────────────────────────────────────────
@@ -866,8 +927,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── PASO 5-6: Buscar productos relevantes ────────────────────────────────
-  // Query con mensajes del cliente + últimos mensajes del bot (para capturar
-  // contexto cuando el cliente responde "si" a una oferta del bot)
   const mensajesCliente = historialConv
     .filter(m => m.rol === 'cliente')
     .slice(-5)
@@ -879,11 +938,94 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     .map(m => m.texto);
 
   const queryAcumulado = [...mensajesCliente, ...mensajesBot, texto].join(' ');
-
   const canalActual = estadoActual?.canal || conversacionExistente?.canal || 'ecommerce';
-  const queryProductos = [...mensajesCliente, texto].join(' ');
-  const { productos: productosCtx } = datos.buscarProductos(queryProductos, canalActual);
-  const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
+  const { buildCartUrl } = require('../utils/wooCart');
+
+  // ── PASO E: Confirmación final del carrito ────────────────────────────────
+  if (estadoActual.awaitingConfirmation && _esConfirmacionPedido(texto)) {
+    const _cartItems = estadoActual.cart || [];
+    let _respE;
+    if (_cartItems.length > 0 && canalActual === 'ecommerce') {
+      const _url = await buildCartUrl(_cartItems);
+      if (_url) {
+        _respE = `¡Listo! 🛒 Aquí está tu link para completar la compra:\n${_url}`;
+        leadUpdate.link_carrito_enviado = true;
+        leadUpdate.etapa_pipeline = 'ganado';
+        setEstado(phone, { cart: [], pendingSkus: [], awaitingMore: false, awaitingConfirmation: false });
+        if (conversacionExistente?.lead_id) {
+          try {
+            await db.update('leads', conversacionExistente.lead_id, {
+              link_carrito_enviado: true, etapa_pipeline: 'ganado',
+              ultima_actividad: new Date().toISOString(),
+            });
+          } catch (_e) {}
+        }
+      } else {
+        _respE = 'Tuve un problema generando el link. Un ejecutivo te lo envía en breve con el detalle de tu pedido.';
+        if (estadoActual.ejecutivoAsignado) {
+          const _resumenExec = _cartItems.map(i =>
+            `${i.nombre} × ${i.qty} — $${(i.precio * i.qty).toLocaleString('es-CL')}`
+          ).join('\n');
+          await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, [
+            ...historialConv,
+            { rol: 'bot', texto: `[Carrito — fallo link]\n${_resumenExec}` },
+          ]);
+        }
+      }
+    } else {
+      _respE = 'Para completar tu pedido, un ejecutivo te contactará con el detalle.';
+    }
+    const _convE = await _guardarMensajes(phone, texto, _respE, conversacionExistente, canal_tipo);
+    return { respuesta: _respE, derivar: false, conversacion: _convE, leadUpdate, estado: getEstado(phone) };
+  }
+
+  // ── PASO F: Modificación mientras awaitingConfirmation ───────────────────
+  if (estadoActual.awaitingConfirmation && _esModificacionCarrito(texto)) {
+    setEstado(phone, { awaitingConfirmation: false, awaitingMore: true });
+  }
+
+  // ── PASO D: Cliente cierra el pedido ──────────────────────────────────────
+  {
+    const _estadoD = getEstado(phone);
+    if (_estadoD.awaitingMore && _esCierreCarrito(texto) && (_estadoD.cart || []).length > 0) {
+      const _respD = _buildResumenCarrito(_estadoD.cart);
+      setEstado(phone, { awaitingMore: false, awaitingConfirmation: true });
+      const _convD = await _guardarMensajes(phone, texto, _respD, conversacionExistente, canal_tipo);
+      return { respuesta: _respD, derivar: false, conversacion: _convD, leadUpdate, estado: getEstado(phone) };
+    }
+  }
+
+  // ── PASO B: Cliente elige opción de pendingSkus ───────────────────────────
+  // Resolución sin buscarProductos() — los datos vienen de session.pendingSkus
+  let _systemHint = null;
+  let _pasoB = false;
+  {
+    const _estadoB = getEstado(phone);
+    if (_estadoB.awaitingMore && (_estadoB.pendingSkus || []).length > 0) {
+      const _selec = _detectarSeleccionPendingSkus(texto, _estadoB.pendingSkus);
+      if (_selec) {
+        const { item: _item, qty: _qty } = _selec;
+        const _cartActual = _estadoB.cart || [];
+        setEstado(phone, {
+          cart: [..._cartActual, { ..._item, qty: _qty }],
+          pendingSkus: [],
+          awaitingMore: true,
+        });
+        _systemHint = `El cliente eligió "${_item.nombre}" (qty: ${_qty}) y fue agregado al pedido. Confirma brevemente la selección — solo di qué fue agregado — y pregunta amablemente si necesita algo más o sugiere un complemento relevante. No muestres el SKU ni el precio otra vez.`;
+        _pasoB = true;
+      }
+    }
+  }
+
+  // Buscar productos (se omite en PASO B — datos vienen de pendingSkus, no del texto)
+  let productosCtx = [];
+  let conocimientoCtx = [];
+  if (!_pasoB) {
+    const _queryProductos = [...mensajesCliente, texto].join(' ');
+    const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
+    productosCtx = _prods;
+    conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
+  }
 
   // Guardar productos del contexto en estado (para carrito)
   if (productosCtx.length > 0) {
@@ -891,9 +1033,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     productosCtx.forEach(p => { if (p.sku) skuMap[p.sku] = p; });
     setEstado(phone, { skuMapActual: skuMap });
   }
-
-  // Carrito se construye post-GPT via hidden marker [SKU:...]
-  const { buildCartUrl } = require('../utils/wooCart');
 
   // ── PASO 7: Hint de identificación para el system prompt ─────────────────
   let identificacionHint = '';
@@ -916,7 +1055,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   };
 
   // ── PASO 8: Llamar a OpenAI ───────────────────────────────────────────────
-  let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx)
+  let respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx, _systemHint)
     || `Estoy aquí para ayudarte. ¿En qué puedo orientarte?`;
 
   // ── Construcción automática del carrito sin depender del marker ──────────
@@ -925,13 +1064,21 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     .filter(p => p.sku)
     .map(p => ({ sku: p.sku, quantity: 1 }));
 
-  // Persistir pendingSkus cuando el bot presenta productos con precio o [carrito].
-  // En el turno siguiente, si el cliente confirma con "sí/dale/ok",
-  // el texto de confirmación no contiene producto y buscarProductos() devuelve [].
-  // Con pendingSkus podemos construir el carrito sin depender del turno de confirmación.
+  // Persistir pendingSkus con wooId cuando el bot presenta productos con precio.
+  // PASO B usa este array para resolver la selección del cliente sin llamar
+  // buscarProductos() — los datos del producto vienen aquí, no del texto.
   if (skusActuales.length > 0 &&
       (/\$\s*\d[\d.,]*/.test(respuesta) || respuesta.includes('[carrito]'))) {
-    setEstado(phone, { pendingSkus: skusActuales });
+    const _wooMapData = dataStore.getWooMap();
+    const _pendingSkusNuevos = productosCtx
+      .filter(p => p.sku)
+      .map(p => ({
+        sku:    p.sku,
+        wooId:  _wooMapData[p.sku] || _wooMapData[p.sku?.toUpperCase()] || null,
+        nombre: p.nombre_web || p.descripcion || p.sku,
+        precio: p.precio || 0,
+      }));
+    setEstado(phone, { pendingSkus: _pendingSkusNuevos, awaitingMore: true });
   }
 
   if (esConfirmacion && skusActuales.length > 0 && respuesta.includes('[carrito]')) {
@@ -968,7 +1115,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       setEstado(phone, { skusConfirmados: _skusNuevos });
     }
 
-    const _linkConf = buildCartUrl(_skusNuevos);
+    const _linkConf = await buildCartUrl(_skusNuevos);
 
     respuesta = respuesta
       .replace(_skuMarkerRegex, '')
@@ -995,7 +1142,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
           ? _pendingSkus
           : (esConfirmacion && skusActuales.length > 0 ? skusActuales : []));
     const _link = _itemsParaCarrito.length > 0
-      ? buildCartUrl(_itemsParaCarrito)
+      ? await buildCartUrl(_itemsParaCarrito)
       : null;
     console.log('[DEBUG-CARRITO] respuesta incluye [carrito]:', respuesta.includes('[carrito]'));
     console.log('[DEBUG-CARRITO] productosCtx length:', (productosCtx||[]).length);
