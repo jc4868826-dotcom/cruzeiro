@@ -337,23 +337,24 @@ PASO 2 — ENTENDER LA NECESIDAD:
 Pregunta para qué espacio, uso o aplicación necesita el producto.
 Una sola pregunta a la vez.
 
-PASO 3 — MOSTRAR PRODUCTOS (solo después de conocer la cantidad):
-NUNCA muestres precio antes de saber la cantidad.
-Muestra 2-3 opciones del catálogo con nombre y precio.
-El SKU es interno — NO lo muestres al cliente.
+PASO 3 — MOSTRAR PRODUCTOS (solo después de conocer el uso/espacio):
+Muestra 2-3 opciones del catálogo con este formato EXACTO por producto:
+[número]. [nombre del producto]
+    SKU: [SKU exacto del catálogo]
+    Precio: $[precio]
+Siempre muestra el SKU — es necesario para procesar el pedido.
+NUNCA inventes un SKU. Si no lo ves en el catálogo, no lo muestres.
 
-PASO 4 — CONFIRMAR PEDIDO:
-Cuando el cliente confirme qué quiere, responde con el nombre y precio del
-producto elegido. Luego escribe exactamente:
-"Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
-El sistema genera el link automáticamente. Solo debes escribir [carrito].
-NUNCA construyas una URL tú mismo.
+PASO 4 — CONFIRMAR SELECCIÓN:
+Cuando el cliente elige un producto (dice 'el 1', 'el primero', 'ese', etc.),
+confirma brevemente qué fue agregado y pregunta si necesita algo más.
+Ejemplo: 'Perfecto, agregué el [nombre] al pedido. ¿Necesitas algo más?'
+NO generes ningún link. NO escribas [carrito]. El sistema lo maneja solo.
 
-PASO 5 — OFRECER COMPLEMENTOS:
-Después de enviar el link, pregunta si necesita algo más relacionado.
-Ejemplos: "¿También necesitas bolsas para esos contenedores?" o
-"¿Necesitas algún accesorio adicional?"
-Si el cliente pide algo adicional, repite el flujo desde PASO 2.
+PASO 5 — SEGUIR AGREGANDO O CERRAR:
+Después de confirmar una selección, pregunta si necesita algo más.
+Si el cliente dice que no necesita nada más, el sistema generará el resumen
+y el link automáticamente. Tu rol es solo preguntar '¿Algo más?'
 
 PASO 6 — CIERRE FINAL:
 Cuando el cliente diga que no necesita nada más, despídete brevemente.
@@ -361,18 +362,10 @@ Cuando el cliente diga que no necesita nada más, despídete brevemente.
 REGLAS ABSOLUTAS:
 - NUNCA repitas preguntas que el cliente ya respondió en el historial.
 - NUNCA inventes productos, precios, medidas o características.
-- NUNCA muestres el SKU_INTERNO al cliente en el texto visible.
+- SIEMPRE muestra el SKU junto al producto — es parte de la presentación.
 - Solo puedes mencionar productos del CATÁLOGO DE PRODUCTOS DISPONIBLES.
 - Si el cliente pide algo que no está en el catálogo, dilo claramente y
   ofrece alternativas del catálogo que sí existan.
-
-═══════════════════════════════════
-GENERACIÓN DEL LINK
-═══════════════════════════════════
-Cuando el cliente confirme qué quiere comprar, escribe exactamente:
-"Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?"
-El sistema genera el link automáticamente. Solo debes escribir [carrito].
-NUNCA construyas una URL tú mismo.
 
 ═══════════════════════════════════
 REGLA ABSOLUTA — PRODUCTOS
@@ -395,7 +388,7 @@ Si no encuentras el producto → dilo honestamente, NO lo inventes.
 Cuando el cliente pide un producto complementario (bolsas, adhesivos, complementos):
 1. Busca en el catálogo ese producto antes de responder cualquier detalle
 2. Presenta máximo 3 opciones reales con SKU, precio y descripción del catálogo
-3. Solo cuando el cliente elige, construye el link del carrito
+3. Solo cuando el cliente elige, el sistema genera el link automáticamente
 NUNCA describas características de un complemento sin haberlo encontrado en el catálogo con SKU y precio válidos.
 
 ⚠️ REGLA SIN EXCEPCIONES: NUNCA inventes un SKU. Jamás. Un SKU inventado (ej: A123ADH1LT, PEGAS2, etc.) es información falsa — el cliente no puede comprarlo y destruye la confianza. Si no ves el SKU exacto en el catálogo disponible arriba, NO lo menciones. Di "no lo tengo en catálogo" antes que inventar uno.
@@ -470,7 +463,7 @@ Cuando el cliente pide un producto complementario o accesorio, PRIMERO busca ese
 ═══════════════════════════════════
 PRESENTACIÓN DE PRODUCTOS
 ═══════════════════════════════════
-Al presentar opciones al cliente muestra SOLO: nombre del producto y precio. El SKU es información interna del sistema — NUNCA lo incluyas en el mensaje al cliente. El cliente no necesita el SKU para comprar. Cuando llegues al PASO 9 (cierre), dirige al cliente al carrito con el link generado.
+El SKU debe mostrarse al cliente junto con el nombre y precio del producto. Es necesario para identificar el pedido correctamente.
 
 ═══════════════════════════════════
 CATÁLOGO DE PRODUCTOS DISPONIBLES
@@ -535,7 +528,11 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
           role: m.rol === 'cliente' ? 'user' : 'assistant',
           content: m.texto,
         })),
-        { role: 'system', content: `RECORDATORIO FINAL: Cuando el cliente confirme su elección de producto, escribe inmediatamente: "Aquí tienes el link con todo listo: [carrito] ¿Necesitas algo más?" El sistema genera el link automáticamente al detectar [carrito]. NO necesitas escribir nada más que [carrito].` },
+        { role: 'system', content: `RECORDATORIO DE FLUJO:
+Cuando el cliente elige un producto, confirma brevemente la selección y pregunta si necesita algo más. NO generes ningún link ni escribas [carrito].
+El sistema acumula los productos automáticamente.
+Solo cuando el cliente diga que ya no necesita nada más (eso es todo, listo, es todo, nada más), el sistema mostrará el resumen y pedirá confirmación.
+NUNCA escribas [carrito] en tu respuesta. El link lo genera el sistema, no tú.` },
         ...(systemHint ? [{ role: 'system', content: systemHint }] : []),
         { role: 'user', content: texto },
       ],
@@ -979,7 +976,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     const _cartItems = estadoActual.cart || [];
     let _respE;
     if (_cartItems.length > 0 && canalActual === 'ecommerce') {
-      const _url = await buildCartUrl(_cartItems);
+      const _url = buildCartUrl(_cartItems);
       if (_url) {
         _respE = `¡Listo! 🛒 Aquí está tu link para completar la compra:\n${_url}`;
         leadUpdate.link_carrito_enviado = true;
@@ -1163,7 +1160,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       setEstado(phone, { skusConfirmados: _skusNuevos });
     }
 
-    const _linkConf = await buildCartUrl(_skusNuevos);
+    const _linkConf = buildCartUrl(_skusNuevos);
 
     respuesta = respuesta
       .replace(_skuMarkerRegex, '')
@@ -1190,7 +1187,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
           ? _pendingSkus
           : (esConfirmacion && skusActuales.length > 0 ? skusActuales : []));
     const _link = _itemsParaCarrito.length > 0
-      ? await buildCartUrl(_itemsParaCarrito)
+      ? buildCartUrl(_itemsParaCarrito)
       : null;
     console.log('[DEBUG-CARRITO] respuesta incluye [carrito]:', respuesta.includes('[carrito]'));
     console.log('[DEBUG-CARRITO] productosCtx length:', (productosCtx||[]).length);
