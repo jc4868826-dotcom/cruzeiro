@@ -7,34 +7,59 @@ const { OPENAI_API_KEY } = require('../config');
 const datos = require('./datos');
 const dataStore = require('../data/dataStore');
 
-// ─── In-memory conversation state (keyed by phone) ───────────────────────────
-// { etapa, canal, rut, ejecutivoAsignado, clienteNombre }
-const conversationStates = new Map();
+// ─── Persistent conversation state (disk-backed, survives Render restarts) ────
+
+const path = require('path');
+const fs   = require('fs');
+
+const SESSION_DIR = '/data/cruzeiro/sessions';
+
+// Startup: ensure dir exists + purge sessions older than 48h
+try {
+  fs.mkdirSync(SESSION_DIR, { recursive: true });
+  const _cutoff = Date.now() - 48 * 60 * 60 * 1000;
+  for (const _f of fs.readdirSync(SESSION_DIR)) {
+    if (!_f.endsWith('.json')) continue;
+    const _fp = path.join(SESSION_DIR, _f);
+    try { if (fs.statSync(_fp).mtimeMs < _cutoff) fs.unlinkSync(_fp); } catch (_) {}
+  }
+} catch (_) {}
+
+const _STATE_DEFAULTS = {
+  etapa: null,
+  canal: null,
+  rut: null,
+  ejecutivoAsignado: null,
+  clienteNombre: null,
+  subcategoriasActivas: null,
+  intentos_rut_fallidos: 0,
+  skusConfirmados: [],
+  pendingSkus: [],
+  cart: [],
+  awaitingMore: false,
+  awaitingConfirmation: false,
+};
+
+function _sessionPath(phone) {
+  return path.join(SESSION_DIR, phone.replace(/[^0-9]/g, '') + '.json');
+}
 
 function getEstado(phone) {
-  return conversationStates.get(phone) || {
-    etapa: null,
-    canal: null,
-    rut: null,
-    ejecutivoAsignado: null,
-    clienteNombre: null,
-    subcategoriasActivas: null,
-    intentos_rut_fallidos: 0,
-    skusConfirmados: [],
-    pendingSkus: [],
-    cart: [],
-    awaitingMore: false,
-    awaitingConfirmation: false,
-  };
+  try {
+    const raw = fs.readFileSync(_sessionPath(phone), 'utf8');
+    return { ..._STATE_DEFAULTS, ...JSON.parse(raw) };
+  } catch { return { ..._STATE_DEFAULTS }; }
 }
 
 function setEstado(phone, patch) {
   const prev = getEstado(phone);
-  conversationStates.set(phone, { ...prev, ...patch });
+  try {
+    fs.writeFileSync(_sessionPath(phone), JSON.stringify({ ...prev, ...patch }), 'utf8');
+  } catch (e) { console.error('[bot] setEstado error:', e.message); }
 }
 
 function resetEstado(phone) {
-  conversationStates.delete(phone);
+  try { fs.unlinkSync(_sessionPath(phone)); } catch (_) {}
 }
 
 function extraerQueryProducto(texto) {
@@ -674,6 +699,14 @@ function _detectarSeleccionPendingSkus(texto, pendingSkus) {
     return { item: pendingSkus[0], qty };
   }
 
+  // Número suelto sin unidades: "2" → índice de opción o cantidad si hay 1 sola opción
+  const _bareNum = texto.trim().match(/^(\d{1,2})$/);
+  if (_bareNum && !/\b(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg)\b/i.test(texto)) {
+    const _n = parseInt(_bareNum[1]);
+    if (pendingSkus.length === 1 && _n >= 1 && _n <= 10) return { item: pendingSkus[0], qty: _n };
+    if (_n >= 1 && _n <= pendingSkus.length)             return { item: pendingSkus[_n - 1], qty: 1 };
+  }
+
   return null;
 }
 
@@ -1017,6 +1050,14 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
+  // ── PASO B-hint: múltiples opciones pendientes → GPT no debe anticipar cantidad ──
+  if (!_pasoB) {
+    const _estHint = getEstado(phone);
+    if (_estHint.awaitingMore && (_estHint.pendingSkus || []).length > 1) {
+      _systemHint = 'El cliente aún NO ha elegido cuál de las opciones quiere. NO preguntes cuántas unidades quiere todavía — primero pregunta CUÁL de las opciones prefiere. Espera la elección antes de cualquier otra pregunta.';
+    }
+  }
+
   // Buscar productos (se omite en PASO B — datos vienen de pendingSkus, no del texto)
   let productosCtx = [];
   let conocimientoCtx = [];
@@ -1070,14 +1111,21 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   if (skusActuales.length > 0 &&
       (/\$\s*\d[\d.,]*/.test(respuesta) || respuesta.includes('[carrito]'))) {
     const _wooMapData = dataStore.getWooMap();
+    if (!Object.keys(_wooMapData).length) {
+      console.warn('[bot] WooMap vacío al persistir pendingSkus — wooId quedará null hasta próxima carga FTP');
+    }
     const _pendingSkusNuevos = productosCtx
       .filter(p => p.sku)
-      .map(p => ({
-        sku:    p.sku,
-        wooId:  _wooMapData[p.sku] || _wooMapData[p.sku?.toUpperCase()] || null,
-        nombre: p.nombre_web || p.descripcion || p.sku,
-        precio: p.precio || 0,
-      }));
+      .map(p => {
+        const _wid = _wooMapData[p.sku] || _wooMapData[p.sku?.toUpperCase()] || null;
+        if (!_wid) console.warn('[bot] SKU sin wooId en pendingSkus:', p.sku);
+        return {
+          sku:    p.sku,
+          wooId:  _wid,
+          nombre: p.nombre_web || p.descripcion || p.sku,
+          precio: p.precio || 0,
+        };
+      });
     setEstado(phone, { pendingSkus: _pendingSkusNuevos, awaitingMore: true });
   }
 

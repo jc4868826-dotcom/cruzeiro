@@ -23,6 +23,9 @@ async function shortenUrl(longUrl) {
 async function buildCartUrl(cartItems) {
   if (!cartItems || !cartItems.length) return null;
   const wooMapData = dataStore.getWooMap();
+  if (!Object.keys(wooMapData).length) {
+    console.warn('[wooCart] WooMap vacío al construir carrito — verificar carga FTP');
+  }
   const params = [];
   for (const item of cartItems) {
     const sku = item.sku || item.SKU;
