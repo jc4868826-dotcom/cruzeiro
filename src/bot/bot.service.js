@@ -220,12 +220,12 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
             const anchoInfo = g.ancho
               ? ` (ancho ${g.ancho}mt — 1 metro lineal = ${g.ancho} m²)`
               : '';
-            return `  → Por metro lineal${anchoInfo}: ${precioFmt}/mt | ${stockTexto} | SKU_INTERNO: ${v.sku}`;
+            return `  → Por metro lineal${anchoInfo}: ${precioFmt}/mt | ${stockTexto} | SKU: ${v.sku}`;
           }
           if (v.tipo === 'rollo') {
-            return `  → Rollo completo${anchoTexto ? ' ' + anchoTexto : ''}: ${precioFmt} | ${stockTexto} | SKU_INTERNO: ${v.sku}`;
+            return `  → Rollo completo${anchoTexto ? ' ' + anchoTexto : ''}: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
           }
-          return `  → Por unidad: ${precioFmt} | ${stockTexto} | SKU_INTERNO: ${v.sku}`;
+          return `  → Por unidad: ${precioFmt} | ${stockTexto} | SKU: ${v.sku}`;
         }).join('\n');
         return `• ${g.nombre}${anchoTexto ? ' (' + anchoTexto + ')' : ''}\n${variantesTexto}`;
       }).join('\n\n')
@@ -1059,7 +1059,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   let productosCtx = [];
   let conocimientoCtx = [];
   if (!_pasoB) {
-    const _queryProductos = [...mensajesCliente, texto].join(' ');
+    const _queryProductos = [mensajesCliente.slice(-1)[0] || '', texto].filter(Boolean).join(' ');
     const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
     productosCtx = _prods;
     conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);

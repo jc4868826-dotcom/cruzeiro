@@ -333,7 +333,7 @@ function buscarProductos(termino, canal, opciones = {}) {
         const hitsNombre = tokens.filter(t => textoNombre.includes(t)).length;
         const hitsCategoria = tokens.filter(t => textoCategoria.includes(t)).length;
         const scorePonderado = (hitsNombre * 3 + hitsCategoria * 2) / (tokens.length * 3);
-        if (scorePonderado < 0.3) return null;
+        if (scorePonderado < 0.15) return null;
         return {
           _score: scorePonderado,
           sku:              p.sku || '',
@@ -365,7 +365,7 @@ function buscarProductos(termino, canal, opciones = {}) {
         const hitsDesc = tokens.filter(t => textoDesc.includes(t)).length;
         const hitsCategoria = tokens.filter(t => textoCategoria.includes(t)).length;
         const scorePonderado = (hitsNombre * 3 + hitsCategoria * 2 + hitsDesc * 1) / (tokens.length * 3);
-        if (scorePonderado < 0.3) return null;
+        if (scorePonderado < 0.15) return null;
         return {
           _score: scorePonderado,
           sku:              p.sku || '',
