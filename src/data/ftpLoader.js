@@ -90,7 +90,7 @@ function cargarCotizacionesFTP(rows) {
     .filter(row => ESTADOS_COTIZACION.has(String(row['Estado'] || '').trim()))
     .map(row => ({
       tipoNegocio:    String(row['Tipo_Negocio']     || '').trim(),
-      rut:            String(row['RUT']              || '').replace(/\D/g, ''),
+      rut:            String(row['RUT'] || row['Rut'] || '').replace(/\D/g, ''),
       dv:             String(row['Digito']           || '').trim(),
       razonSocial:    String(row['RazonSocial']      || '').trim(),
       vendedor:       String(row['Vendedor']         || '').replace(/\s*\([^)]*\)/g, '').trim(),

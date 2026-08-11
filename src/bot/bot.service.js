@@ -21,6 +21,7 @@ function getEstado(phone) {
     subcategoriasActivas: null,
     intentos_rut_fallidos: 0,
     skusConfirmados: [],
+    pendingSkus: [],
   };
 }
 
@@ -924,6 +925,15 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     .filter(p => p.sku)
     .map(p => ({ sku: p.sku, quantity: 1 }));
 
+  // Persistir pendingSkus cuando el bot presenta productos con precio o [carrito].
+  // En el turno siguiente, si el cliente confirma con "sí/dale/ok",
+  // el texto de confirmación no contiene producto y buscarProductos() devuelve [].
+  // Con pendingSkus podemos construir el carrito sin depender del turno de confirmación.
+  if (skusActuales.length > 0 &&
+      (/\$\s*\d[\d.,]*/.test(respuesta) || respuesta.includes('[carrito]'))) {
+    setEstado(phone, { pendingSkus: skusActuales });
+  }
+
   if (esConfirmacion && skusActuales.length > 0 && respuesta.includes('[carrito]')) {
     const _skusAcum = estadoActual?.skusConfirmados || [];
     const _primerSku = skusActuales[0];
@@ -968,23 +978,29 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
     if (_linkConf) {
       respuesta = respuesta.replace(/\[carrito\]/g, _linkConf);
+      leadUpdate.link_carrito_enviado = true;
     }
-
-    leadUpdate.link_carrito_enviado = true;
   }
 
-  // ── Reemplazo de [carrito]: usa skusConfirmados o productosCtx según contexto ──
+  // ── Reemplazo de [carrito]: prioriza skusConfirmados > pendingSkus > skusActuales ──
   if (respuesta.includes('[carrito]')) {
     const _skusAcum = estadoActual?.skusConfirmados || [];
+    // pendingSkus se leyó ANTES del procesamiento del turno actual pero se pudo
+    // actualizar en este mismo turno (si GPT presentó productos); leemos el
+    // estado más reciente directamente del Map para capturar ese caso.
+    const _pendingSkus = getEstado(phone).pendingSkus || [];
     const _itemsParaCarrito = _skusAcum.length > 0
       ? _skusAcum
-      : (esConfirmacion && skusActuales.length > 0 ? skusActuales : []);
+      : (_pendingSkus.length > 0
+          ? _pendingSkus
+          : (esConfirmacion && skusActuales.length > 0 ? skusActuales : []));
     const _link = _itemsParaCarrito.length > 0
       ? buildCartUrl(_itemsParaCarrito)
       : null;
     console.log('[DEBUG-CARRITO] respuesta incluye [carrito]:', respuesta.includes('[carrito]'));
     console.log('[DEBUG-CARRITO] productosCtx length:', (productosCtx||[]).length);
     console.log('[DEBUG-CARRITO] skusConfirmados:', JSON.stringify(estadoActual?.skusConfirmados));
+    console.log('[DEBUG-CARRITO] pendingSkus:', JSON.stringify(_pendingSkus));
     console.log('[DEBUG-CARRITO] itemsParaCarrito:', JSON.stringify(_itemsParaCarrito));
     respuesta = respuesta.replace(
       /\[carrito\]/g,
@@ -992,7 +1008,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     );
     if (_link) {
       leadUpdate.link_carrito_enviado = true;
-      setEstado(phone, { skusConfirmados: _itemsParaCarrito });
+      setEstado(phone, { skusConfirmados: _itemsParaCarrito, pendingSkus: [] });
     }
   }
 
