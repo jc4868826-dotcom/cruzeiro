@@ -667,54 +667,6 @@ function _norm(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 }
 
-function _esCierreCarrito(texto) {
-  const t = _norm(texto);
-  return /\b(eso es todo|es todo|nada mas|nada más|con eso|eso nomas|eso nomás|solo eso|ya esta|ya está|por ahora es todo|es todo por ahora|con eso basta|no necesito mas|no necesito nada mas|con eso esta bien|con eso está bien|no con eso|listo gracias|con eso me alcanza|eso me basta|no gracias|solo eso necesito|con eso estoy bien)\b/.test(t);
-}
-
-function _esConfirmacion(texto) {
-  return /^(s[íi]|dale|ok|okay|perfecto|va|yes|yep|claro|de acuerdo|confirmo|adelante|confirmado)\b/i.test(_norm(texto));
-}
-
-function _extraerQty(texto) {
-  const m = texto.match(/^(\d+)$/)
-    || texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg|contenedores?|basureros?)\b/i)
-    || texto.match(/\b(?:quiero|necesito|dame|ponme)\s+(\d+)\b/i);
-  return m ? Math.max(1, parseInt(m[1])) : null;
-}
-
-function _detectarSeleccion(texto, pendingSkus) {
-  if (!pendingSkus || !pendingSkus.length) return null;
-  const t = _norm(texto);
-
-  const ordinals = [
-    { re: /primer[ao]?|^1$|el\s+1|la\s+1|numero\s*1|opci[oó]n\s*1|\b1\b/, idx: 0 },
-    { re: /segund[ao]?|^2$|el\s+2|la\s+2|numero\s*2|opci[oó]n\s*2|\b2\b/, idx: 1 },
-    { re: /tercer[ao]?|^3$|el\s+3|la\s+3|numero\s*3|opci[oó]n\s*3|\b3\b/, idx: 2 },
-    { re: /cuart[ao]?|^4$|el\s+4|la\s+4|numero\s*4|opci[oó]n\s*4|\b4\b/, idx: 3 },
-    { re: /quint[ao]?|^5$|el\s+5|la\s+5|numero\s*5|opci[oó]n\s*5|\b5\b/, idx: 4 },
-  ];
-  for (const { re, idx } of ordinals) {
-    if (re.test(t) && pendingSkus[idx]) return pendingSkus[idx];
-  }
-
-  if (/mas barato|mas economico|mas barata|menor precio/.test(t))
-    return [...pendingSkus].sort((a, b) => a.precio - b.precio)[0] || null;
-  if (/mas caro|mas grande|mayor precio|mas costoso/.test(t))
-    return [...pendingSkus].sort((a, b) => b.precio - a.precio)[0] || null;
-
-  for (const item of pendingSkus) {
-    const nombreNorm = _norm(item.nombre);
-    const palabras = t.split(/\s+/).filter(p => p.length > 3);
-    if (palabras.some(p => nombreNorm.includes(p))) return item;
-  }
-
-  if (pendingSkus.length === 1 && /^(si|dale|ok|ese|esa|bueno|claro|perfecto|de acuerdo|eso|confirmo)\b/.test(t))
-    return pendingSkus[0];
-
-  return null;
-}
-
 function _buildResumen(cart) {
   const lineas = cart.map(item => {
     const subtotal = item.precio * item.qty;
@@ -732,6 +684,79 @@ function _buildPendingSkus(productosCtx) {
     if (!wooId) console.warn('[bot] SKU sin wooId:', p.sku);
     return { sku: p.sku, wooId, nombre: p.nombre_web || p.descripcion || p.sku, precio: p.precio || 0 };
   });
+}
+
+// ─── Clasificación de intención via GPT ─────────────────────────────────────
+// Una llamada liviana que reemplaza TODOS los regex de detección.
+// GPT entiende "no", "nah", "ya estoy", "el verde", "2 unidades", etc.
+// Costo: ~10 tokens output, ~100 tokens input = centavos por mensaje.
+
+async function clasificarIntencion(texto, fase, cart, pendingSkus, selectedItem, historial) {
+  const openai = getOpenAI();
+  if (!openai) return { tipo: 'OTRO' };
+
+  const cartResumen = (cart || []).map(i => `${i.nombre} x${i.qty}`).join(', ') || 'vacío';
+  const opcionesResumen = (pendingSkus || []).map((p, i) => `${i+1}. ${p.nombre}`).join(', ') || 'ninguna';
+  const itemPendiente = selectedItem ? selectedItem.nombre : 'ninguno';
+  const ultimos3 = (historial || []).slice(-3).map(m => `${m.rol}: ${m.texto}`).join('\n');
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{
+        role: 'system',
+        content: `Eres un clasificador de intención para un bot de ventas por WhatsApp.
+El cliente está en la fase "${fase}" de su compra.
+
+Carrito actual: ${cartResumen}
+Opciones presentadas: ${opcionesResumen}
+Producto pendiente de cantidad: ${itemPendiente}
+
+Últimos mensajes:
+${ultimos3}
+
+Clasifica el ÚLTIMO mensaje del cliente en exactamente UNA de estas categorías.
+Responde SOLO con el código, nada más:
+
+CIERRE — el cliente NO quiere más productos (ej: "no", "eso es todo", "listo", "nah", "ya", "con eso", "no gracias", "estoy bien", "solo eso")
+CONFIRMACION — el cliente confirma/acepta algo (ej: "sí", "dale", "ok", "perfecto", "confirmo", "de acuerdo", "va")
+SELECCION:N — el cliente elige la opción N de las presentadas (ej: "el 1", "el rojo", "la más barata", "el primero", "ese"). N es el número de opción (1, 2 o 3). Si dice un color o nombre, identifica cuál opción es.
+CANTIDAD:N — el cliente indica una cantidad numérica (ej: "2", "necesito 3", "5 unidades", "quiero 10"). N es el número.
+SELECCION_Y_CANTIDAD:N:Q — el cliente elige opción N Y da cantidad Q en el mismo mensaje (ej: "2 del rojo", "quiero 3 del primero", "necesito 5 unidades del azul")
+PRODUCTO — el cliente pide un producto NUEVO o diferente (ej: "bolsas de basura", "también necesito cinta", "y guantes?")
+PREGUNTA — el cliente hace una pregunta sobre los productos (ej: "cuál es mejor?", "de qué material es?", "hay otro color?")
+MODIFICAR — el cliente quiere cambiar algo del pedido (ej: "mejor 3 en vez de 2", "quita el rojo", "cambia por el verde")
+OTRO — no encaja en ninguna categoría anterior`
+      }, {
+        role: 'user',
+        content: texto
+      }],
+      max_tokens: 20,
+      temperature: 0,
+    });
+
+    const raw = (resp.choices[0]?.message?.content || 'OTRO').trim().toUpperCase();
+
+    if (raw === 'CIERRE') return { tipo: 'CIERRE' };
+    if (raw === 'CONFIRMACION') return { tipo: 'CONFIRMACION' };
+    if (raw === 'PRODUCTO') return { tipo: 'PRODUCTO' };
+    if (raw === 'PREGUNTA') return { tipo: 'PREGUNTA' };
+    if (raw === 'MODIFICAR') return { tipo: 'MODIFICAR' };
+
+    const selMatch = raw.match(/^SELECCION:(\d+)$/);
+    if (selMatch) return { tipo: 'SELECCION', indice: parseInt(selMatch[1]) };
+
+    const qtyMatch = raw.match(/^CANTIDAD:(\d+)$/);
+    if (qtyMatch) return { tipo: 'CANTIDAD', cantidad: parseInt(qtyMatch[1]) };
+
+    const syqMatch = raw.match(/^SELECCION_Y_CANTIDAD:(\d+):(\d+)$/);
+    if (syqMatch) return { tipo: 'SELECCION_Y_CANTIDAD', indice: parseInt(syqMatch[1]), cantidad: parseInt(syqMatch[2]) };
+
+    return { tipo: 'OTRO' };
+  } catch (e) {
+    console.error('[clasificarIntencion] Error:', e.message);
+    return { tipo: 'OTRO' };
+  }
 }
 
 // ─── Main processor ───────────────────────────────────────────────────────────
@@ -984,53 +1009,76 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   let productosCtx = [];
   let conocimientoCtx = [];
 
-  // ── CERRANDO: cliente confirma → generar link ──────────────────────────
-  if (fase === 'cerrando' && _esConfirmacion(texto)) {
-    const _cartItems = estadoActual.cart || [];
-    if (_cartItems.length > 0 && (canalActual === 'ecommerce' || !canalActual)) {
-      const _url = buildCartUrl(_cartItems);
-      if (_url) {
-        respuesta = `¡Listo! Aquí está tu link para completar la compra:\n${_url}`;
-        leadUpdate.link_carrito_enviado = true;
-        leadUpdate.etapa_pipeline = 'ganado';
-        setEstado(phone, { fase: 'explorando', cart: [], pendingSkus: [], selectedItem: null });
-        if (conversacionExistente?.lead_id) {
-          try {
-            await db.update('leads', conversacionExistente.lead_id, {
-              link_carrito_enviado: true, etapa_pipeline: 'ganado',
-              ultima_actividad: new Date().toISOString(),
-            });
-          } catch (_e) {}
+  // ── CLASIFICAR INTENCIÓN VIA GPT ─────────────────────────────────────
+  const intencion = await clasificarIntencion(
+    texto, fase, estadoActual.cart, estadoActual.pendingSkus,
+    estadoActual.selectedItem, historialConv
+  );
+  console.log(`[MOTOR] fase=${fase} intencion=${JSON.stringify(intencion)} texto="${texto.slice(0,40)}"`);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // FASE: CERRANDO — esperando confirmación del resumen
+  // ════════════════════════════════════════════════════════════════════════
+  if (fase === 'cerrando') {
+    if (intencion.tipo === 'CONFIRMACION') {
+      const _cartItems = estadoActual.cart || [];
+      if (_cartItems.length > 0 && (canalActual === 'ecommerce' || !canalActual)) {
+        const _url = buildCartUrl(_cartItems);
+        if (_url) {
+          respuesta = `¡Listo! 🛒 Aquí está tu link para completar la compra:\n${_url}`;
+          leadUpdate.link_carrito_enviado = true;
+          leadUpdate.etapa_pipeline = 'ganado';
+          setEstado(phone, { fase: 'explorando', cart: [], pendingSkus: [], selectedItem: null });
+          if (conversacionExistente?.lead_id) {
+            try {
+              await db.update('leads', conversacionExistente.lead_id, {
+                link_carrito_enviado: true, etapa_pipeline: 'ganado',
+                ultima_actividad: new Date().toISOString(),
+              });
+            } catch (_e) {}
+          }
+        } else {
+          respuesta = 'Tuve un problema generando el link. Un ejecutivo te lo envía en breve.';
+          if (estadoActual.ejecutivoAsignado) {
+            const _resumenExec = _cartItems.map(i =>
+              `${i.nombre} × ${i.qty} — $${(i.precio * i.qty).toLocaleString('es-CL')}`
+            ).join('\n');
+            try {
+              await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, [
+                ...historialConv,
+                { rol: 'bot', texto: `[Carrito — fallo link]\n${_resumenExec}` },
+              ]);
+            } catch (_) {}
+          }
         }
       } else {
-        respuesta = 'Tuve un problema generando el link. Un ejecutivo te lo envía en breve.';
-        if (estadoActual.ejecutivoAsignado) {
-          const _resumenExec = _cartItems.map(i =>
-            `${i.nombre} × ${i.qty} — $${(i.precio * i.qty).toLocaleString('es-CL')}`
-          ).join('\n');
-          await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, [
-            ...historialConv,
-            { rol: 'bot', texto: `[Carrito — fallo link]\n${_resumenExec}` },
-          ]);
-        }
+        respuesta = 'Para completar tu pedido, un ejecutivo te contactará con el detalle.';
       }
+      if (respuesta) {
+        const _convCerrando = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
+        return { respuesta, derivar: false, conversacion: _convCerrando, leadUpdate, estado: getEstado(phone) };
+      }
+
+    } else if (intencion.tipo === 'MODIFICAR' || intencion.tipo === 'PRODUCTO') {
+      setEstado(phone, { fase: 'acumulando' });
+      _systemHint = 'El cliente quiere modificar el pedido o agregar algo. Pregunta qué quiere cambiar.';
+
     } else {
-      respuesta = 'Para completar tu pedido, un ejecutivo te contactará con el detalle.';
+      // Cualquier otra cosa en cerrando → repetir el resumen
+      respuesta = _buildResumen(estadoActual.cart || []);
+      const _convRes = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
+      return { respuesta, derivar: false, conversacion: _convRes, leadUpdate, estado: getEstado(phone) };
     }
-    const _convCerrando = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
-    return { respuesta, derivar: false, conversacion: _convCerrando, leadUpdate, estado: getEstado(phone) };
   }
 
-  // ── CERRANDO: cliente pide modificación → volver a acumulando ─────────
-  if (fase === 'cerrando' && /\b(agrega|quita|saca|elimina|cambia|en realidad|otro|otra)\b/i.test(texto)) {
-    setEstado(phone, { fase: 'acumulando' });
-  }
-
-  // ── CONFIRMANDO_QTY: cliente responde cantidad ─────────────────────────
-  if (fase === 'confirmando_qty') {
+  // ════════════════════════════════════════════════════════════════════════
+  // FASE: CONFIRMANDO_QTY — esperando cantidad del ítem elegido
+  // ════════════════════════════════════════════════════════════════════════
+  else if (fase === 'confirmando_qty' && estadoActual.selectedItem) {
     const _item = estadoActual.selectedItem;
-    const _qty = _extraerQty(texto);
-    if (_qty && _item) {
+
+    if (intencion.tipo === 'CANTIDAD' || intencion.tipo === 'SELECCION_Y_CANTIDAD') {
+      const _qty = intencion.cantidad || 1;
       const _cartActual = estadoActual.cart || [];
       const _idx = _cartActual.findIndex(c => c.sku === _item.sku);
       const _cartNuevo = [..._cartActual];
@@ -1041,74 +1089,161 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       }
       setEstado(phone, { fase: 'acumulando', cart: _cartNuevo, selectedItem: null, pendingSkus: [] });
       _systemHint = `El cliente confirmó ${_qty} unidad(es) de "${_item.nombre}". Confirma: "Perfecto, ${_qty} ${_item.nombre}." Luego pregunta: "¿Necesitas algo más?" NO digas "agregué".`;
-    } else if (_esCierreCarrito(texto) && _item) {
+
+    } else if (intencion.tipo === 'CIERRE') {
       _systemHint = `El cliente quiere cerrar pero aún no indicó cuántas unidades de "${_item.nombre}" necesita. Pregunta SOLO: "¿Cuántas unidades de ${_item.nombre} necesitas?"`;
+
+    } else if (intencion.tipo === 'PRODUCTO') {
+      const { productos: _prodsVar } = datos.buscarProductos(texto, canalActual);
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      if (_prodsVar.length > 0) {
+        productosCtx = _prodsVar;
+        const _newPending = _buildPendingSkus(productosCtx);
+        setEstado(phone, { fase: 'eligiendo', pendingSkus: _newPending, selectedItem: null });
+      } else {
+        _systemHint = `No encontré "${texto}" en catálogo. Díselo al cliente y vuelve a preguntar la cantidad de "${_item.nombre}".`;
+      }
+
+    } else if (intencion.tipo === 'PREGUNTA') {
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      _systemHint = `El cliente preguntó sobre "${_item.nombre}". Responde con lo que sabes. Luego vuelve a preguntar la cantidad.`;
+
     } else {
-      _systemHint = `El cliente no dio una cantidad clara. Repregunta: "¿Cuántas unidades de ${_item?.nombre || 'ese producto'} necesitas?"`;
+      _systemHint = `El cliente no dio una cantidad clara. Repregunta: "¿Cuántas unidades de ${_item.nombre} necesitas?"`;
     }
   }
 
-  // ── ELIGIENDO: cliente elige entre opciones presentadas ───────────────
-  if (fase === 'eligiendo' && !_systemHint) {
-    const _item = _detectarSeleccion(texto, estadoActual.pendingSkus || []);
-    if (_item) {
-      const _qtyInline = _extraerQty(texto);
-      if (_qtyInline) {
+  // ════════════════════════════════════════════════════════════════════════
+  // FASE: ELIGIENDO — esperando que elija entre opciones
+  // ════════════════════════════════════════════════════════════════════════
+  else if (fase === 'eligiendo') {
+    const _pending = estadoActual.pendingSkus || [];
+
+    if ((intencion.tipo === 'SELECCION' || intencion.tipo === 'SELECCION_Y_CANTIDAD') && _pending.length > 0) {
+      const _idxOpc = Math.min(Math.max(0, (intencion.indice || 1) - 1), _pending.length - 1);
+      const _item = _pending[_idxOpc];
+      const _qty = intencion.cantidad || null;
+
+      if (_qty) {
         const _cartActual = estadoActual.cart || [];
-        const _idx = _cartActual.findIndex(c => c.sku === _item.sku);
+        const _idxCart = _cartActual.findIndex(c => c.sku === _item.sku);
         const _cartNuevo = [..._cartActual];
-        if (_idx >= 0) {
-          _cartNuevo[_idx] = { ..._cartNuevo[_idx], qty: _qtyInline };
-        } else {
-          _cartNuevo.push({ ..._item, qty: _qtyInline });
-        }
+        if (_idxCart >= 0) { _cartNuevo[_idxCart] = { ..._cartNuevo[_idxCart], qty: _qty }; }
+        else { _cartNuevo.push({ ..._item, qty: _qty }); }
         setEstado(phone, { fase: 'acumulando', cart: _cartNuevo, pendingSkus: [], selectedItem: null });
-        _systemHint = `El cliente eligió "${_item.nombre}" y necesita ${_qtyInline} unidades. Confirma: "Perfecto, ${_qtyInline} ${_item.nombre}." Luego: "¿Necesitas algo más?" NO digas "agregué".`;
+        _systemHint = `El cliente eligió "${_item.nombre}" y necesita ${_qty} unidades. Confirma: "Perfecto, ${_qty} ${_item.nombre}." Luego: "¿Necesitas algo más?"`;
       } else {
         setEstado(phone, { fase: 'confirmando_qty', selectedItem: _item, pendingSkus: [] });
-        _systemHint = `El cliente eligió "${_item.nombre}" (SKU: ${_item.sku}, precio: $${Number(_item.precio).toLocaleString('es-CL')}). Pregunta SOLO: "¿Cuántas unidades necesitas?" Una sola pregunta.`;
+        _systemHint = `El cliente eligió "${_item.nombre}" (SKU: ${_item.sku}, precio: $${Number(_item.precio).toLocaleString('es-CL')}). Pregunta SOLO: "¿Cuántas unidades necesitas?"`;
       }
-    } else if (estadoActual.pendingSkus?.length > 1) {
-      _systemHint = 'El cliente aún NO eligió entre las opciones. NO preguntes cantidad todavía — primero pregunta CUÁL prefiere.';
+
+    } else if (intencion.tipo === 'CIERRE' && (estadoActual.cart || []).length > 0) {
+      setEstado(phone, { fase: 'cerrando', pendingSkus: [] });
+      respuesta = _buildResumen(estadoActual.cart);
+      const _convCierre = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
+      return { respuesta, derivar: false, conversacion: _convCierre, leadUpdate, estado: getEstado(phone) };
+
+    } else if (intencion.tipo === 'PRODUCTO') {
+      const { productos: _prodsNuevos } = datos.buscarProductos(texto, canalActual);
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      if (_prodsNuevos.length > 0) {
+        productosCtx = _prodsNuevos;
+        const _newPending = _buildPendingSkus(productosCtx);
+        setEstado(phone, { fase: 'eligiendo', pendingSkus: _newPending });
+      } else {
+        _systemHint = `No encontré "${texto}" en catálogo. Díselo al cliente y pregunta cuál de las opciones anteriores prefiere.`;
+      }
+
+    } else if (intencion.tipo === 'PREGUNTA') {
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      _systemHint = 'El cliente tiene una pregunta sobre los productos. Responde con lo que sabes. Luego pregunta cuál de las opciones prefiere.';
+
+    } else if (intencion.tipo === 'CANTIDAD' && _pending.length === 1) {
+      const _item = _pending[0];
+      const _qty = intencion.cantidad || 1;
+      const _cartActual = estadoActual.cart || [];
+      const _cartNuevo = [..._cartActual];
+      const _idxCart = _cartActual.findIndex(c => c.sku === _item.sku);
+      if (_idxCart >= 0) { _cartNuevo[_idxCart] = { ..._cartNuevo[_idxCart], qty: _qty }; }
+      else { _cartNuevo.push({ ..._item, qty: _qty }); }
+      setEstado(phone, { fase: 'acumulando', cart: _cartNuevo, pendingSkus: [], selectedItem: null });
+      _systemHint = `Solo había una opción y el cliente pidió ${_qty}. Confirma: "Perfecto, ${_qty} ${_item.nombre}." Luego: "¿Necesitas algo más?"`;
+
+    } else {
+      _systemHint = 'No entendí la selección del cliente. Muestra las opciones de nuevo con nombre, SKU y precio, y pregunta cuál prefiere.';
     }
   }
 
-  // ── ACUMULANDO: buscar producto primero, si no hay → cerrar ──────────
-  if (fase === 'acumulando' && !_systemHint) {
-    const { productos: _prodsAcum } = datos.buscarProductos(texto, canalActual);
-    if (_prodsAcum.length > 0 && !_esCierreCarrito(texto)) {
-      // Encontró productos Y no es frase de cierre → nueva búsqueda
-      productosCtx = _prodsAcum;
-      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
-      const _newPending = _buildPendingSkus(productosCtx);
-      setEstado(phone, { fase: 'eligiendo', pendingSkus: _newPending });
-      _systemHint = 'El cliente quiere otro producto. Muestra las opciones con nombre, SKU y precio. Pregunta cuál prefiere.';
-    } else {
-      // No encontró productos O es frase de cierre → cerrar pedido
+  // ════════════════════════════════════════════════════════════════════════
+  // FASE: ACUMULANDO — tiene ítems, esperando si quiere más
+  // ════════════════════════════════════════════════════════════════════════
+  else if (fase === 'acumulando') {
+    if (intencion.tipo === 'CIERRE' || intencion.tipo === 'CONFIRMACION') {
       const _cart = estadoActual.cart || [];
       if (_cart.length > 0) {
         setEstado(phone, { fase: 'cerrando' });
         respuesta = _buildResumen(_cart);
+        const _convCierre = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
+        return { respuesta, derivar: false, conversacion: _convCierre, leadUpdate, estado: getEstado(phone) };
       } else {
-        _systemHint = 'El cliente no necesita nada más y no hay productos en el pedido. Despídete amablemente.';
+        _systemHint = 'El cliente no necesita nada más. Despídete amablemente.';
+      }
+
+    } else if (intencion.tipo === 'PRODUCTO' || intencion.tipo === 'PREGUNTA') {
+      const { productos: _prodsAcum } = datos.buscarProductos(texto, canalActual);
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      if (_prodsAcum.length > 0) {
+        productosCtx = _prodsAcum;
+        const _newPending = _buildPendingSkus(productosCtx);
+        setEstado(phone, { fase: 'eligiendo', pendingSkus: _newPending });
+        if (intencion.tipo === 'PREGUNTA') {
+          _systemHint = 'El cliente pregunta por algo. Muestra las opciones encontradas con SKU y precio.';
+        }
+      } else {
+        _systemHint = `No encontré "${texto}" en catálogo. Díselo honestamente y pregunta si necesita algo más.`;
+      }
+
+    } else if (intencion.tipo === 'MODIFICAR') {
+      _systemHint = 'El cliente quiere modificar el pedido. Pregunta qué quiere cambiar.';
+
+    } else {
+      // OTRO — intentar buscar producto; si no hay, tratar como cierre
+      const { productos: _prodsOtro } = datos.buscarProductos(texto, canalActual);
+      if (_prodsOtro.length > 0) {
+        productosCtx = _prodsOtro;
+        const _newPending = _buildPendingSkus(productosCtx);
+        setEstado(phone, { fase: 'eligiendo', pendingSkus: _newPending });
+      } else {
+        const _cart = estadoActual.cart || [];
+        if (_cart.length > 0) {
+          setEstado(phone, { fase: 'cerrando' });
+          respuesta = _buildResumen(_cart);
+          const _convCierre = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);
+          return { respuesta, derivar: false, conversacion: _convCierre, leadUpdate, estado: getEstado(phone) };
+        }
       }
     }
   }
 
-  // ── EXPLORANDO / búsqueda de productos ───────────────────────────────
-  if (!_systemHint && !respuesta) {
+  // ════════════════════════════════════════════════════════════════════════
+  // FASE: EXPLORANDO (default) — primera búsqueda
+  // ════════════════════════════════════════════════════════════════════════
+  else {
     const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
     const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
     const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
     productosCtx = _prods;
-    const _queryConoc = historialConv.filter(m => m.rol === 'cliente').slice(-5).map(m => m.texto).concat(texto).join(' ');
-    conocimientoCtx = getCatalogAdapter().buscarConocimiento(_queryConoc);
+    conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
 
     if (productosCtx.length > 0) {
       const _nuevosSkus = _buildPendingSkus(productosCtx);
       setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
     }
   }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // FIN MOTOR — llamar a GPT para generar respuesta si no hay hardcodeada
+  // ════════════════════════════════════════════════════════════════════════
 
   // ── Hint de identificación ────────────────────────────────────────────
   let identificacionHint = '';

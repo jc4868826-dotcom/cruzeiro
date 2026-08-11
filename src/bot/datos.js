@@ -277,7 +277,13 @@ function clasificarPorRut(rutRaw) {
 
 const _norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-const STOPWORDS = new Set(['de','la','el','los','las','para','con','sin','un','una','en','y','o','por','que','del','al','se','es']);
+const STOPWORDS = new Set([
+  'de','la','el','los','las','para','con','sin','un','una','en','y','o',
+  'por','que','del','al','se','es','no','si','ya','mas','eso','esto',
+  'bien','ok','solo','todo','nada','pero','como','muy','me','te','mi',
+  'tu','nos','le','lo','su','hay','son','fue','esta','este','hola',
+  'gracias','bueno','buena'
+]);
 
 function _buscarEnUsos(termino, tokens) {
   const usos = dataStore.getUsos();
@@ -316,7 +322,7 @@ function buscarProductos(termino, canal, opciones = {}) {
   // PASO 1: Tokenizar con sinónimos y stopwords
   const queryConSinonimos = _aplicarSinonimos(termino);
   const queryNorm = _norm(queryConSinonimos);
-  const tokens = queryNorm.split(/\s+/).filter(t => t && !STOPWORDS.has(t));
+  const tokens = queryNorm.split(/\s+/).filter(t => t && t.length >= 3 && !STOPWORDS.has(t));
   if (!tokens.length) return { productos: [], conocimientoTecnico: '', totalEncontrados: 0, query: queryNorm };
 
   // PASO 2: Buscar directo en el catálogo según canal
