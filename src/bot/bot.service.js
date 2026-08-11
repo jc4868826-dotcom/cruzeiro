@@ -1073,16 +1073,30 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
-  // ── ACUMULANDO: cliente cierra el pedido ──────────────────────────────
-  if (fase === 'acumulando' && !_systemHint && _esCierreCarrito(texto) && (estadoActual.cart || []).length > 0) {
-    const _resumen = _buildResumen(estadoActual.cart);
-    setEstado(phone, { fase: 'cerrando' });
-    const _convAcum = await _guardarMensajes(phone, texto, _resumen, conversacionExistente, canal_tipo);
-    return { respuesta: _resumen, derivar: false, conversacion: _convAcum, leadUpdate, estado: getEstado(phone) };
+  // ── ACUMULANDO: buscar producto primero, si no hay → cerrar ──────────
+  if (fase === 'acumulando' && !_systemHint) {
+    const { productos: _prodsAcum } = datos.buscarProductos(texto, canalActual);
+    if (_prodsAcum.length > 0 && !_esCierreCarrito(texto)) {
+      // Encontró productos Y no es frase de cierre → nueva búsqueda
+      productosCtx = _prodsAcum;
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      const _newPending = _buildPendingSkus(productosCtx);
+      setEstado(phone, { fase: 'eligiendo', pendingSkus: _newPending });
+      _systemHint = 'El cliente quiere otro producto. Muestra las opciones con nombre, SKU y precio. Pregunta cuál prefiere.';
+    } else {
+      // No encontró productos O es frase de cierre → cerrar pedido
+      const _cart = estadoActual.cart || [];
+      if (_cart.length > 0) {
+        setEstado(phone, { fase: 'cerrando' });
+        respuesta = _buildResumen(_cart);
+      } else {
+        _systemHint = 'El cliente no necesita nada más y no hay productos en el pedido. Despídete amablemente.';
+      }
+    }
   }
 
   // ── EXPLORANDO / búsqueda de productos ───────────────────────────────
-  if (!_systemHint) {
+  if (!_systemHint && !respuesta) {
     const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
     const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
     const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
