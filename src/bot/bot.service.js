@@ -528,11 +528,25 @@ async function llamarOpenAI(texto, productosContexto, historial = [], contextoCl
           role: m.rol === 'cliente' ? 'user' : 'assistant',
           content: m.texto,
         })),
-        { role: 'system', content: `RECORDATORIO DE FLUJO:
-Cuando el cliente elige un producto, confirma brevemente la selección y pregunta si necesita algo más. NO generes ningún link ni escribas [carrito].
-El sistema acumula los productos automáticamente.
-Solo cuando el cliente diga que ya no necesita nada más (eso es todo, listo, es todo, nada más), el sistema mostrará el resumen y pedirá confirmación.
-NUNCA escribas [carrito] en tu respuesta. El link lo genera el sistema, no tú.` },
+        { role: 'system', content: `REGLAS DE RESPUESTA — LEE ANTES DE RESPONDER:
+
+1. NUNCA digas "agregué", "añadí" ni "guardé" nada al pedido en tu respuesta.
+   El sistema maneja el carrito automáticamente.
+   Solo confirma lo que el cliente eligió: "Perfecto, [nombre del producto]. ¿Necesitas algo más?"
+
+2. NUNCA generes un link de carrito. NUNCA escribas [carrito].
+   El link lo genera el sistema cuando el cliente confirme el pedido completo.
+
+3. Cuando el cliente diga "eso es todo", "listo", "nada más" o similar,
+   responde SOLO con: "Perfecto, ¿confirmas el pedido para que te envíe el link de compra?"
+   No hagas resumen — el sistema lo genera automáticamente.
+
+4. NUNCA preguntes el RUT para confirmar un pedido de compra.
+   El RUT solo se pide para consultas de estado de pedidos ya realizados.
+
+5. Si el cliente pide el link del carrito directamente,
+   responde: "Dame un momento, generando tu link..."
+   El sistema lo enviará automáticamente.` },
         ...(systemHint ? [{ role: 'system', content: systemHint }] : []),
         { role: 'user', content: texto },
       ],
@@ -654,7 +668,8 @@ async function migrarEtapasLegacy() {
 // ─── Cart session helpers ─────────────────────────────────────────────────────
 
 function _esCierreCarrito(texto) {
-  return /^(eso es todo|es todo|nada m[aá]s|nada mas|con eso|eso nom[aá]s|eso nomas|solo eso|ya est[aá]|ya esta|por ahora es todo|es todo por ahora|con eso basta|listo)\b/i.test(texto.trim());
+  const t = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  return /\b(eso es todo|es todo|nada mas|nada m[aá]s|con eso|eso nomas|eso nom[aá]s|solo eso|ya esta|ya est[aá]|por ahora es todo|es todo por ahora|con eso basta|no necesito mas|no necesito nada mas|con eso esta bien|con eso est[aá] bien|no con eso|listo\s+gracias|con\s+eso\s+me\s+alcanza|eso\s+me\s+basta)\b/.test(t);
 }
 
 function _esConfirmacionPedido(texto) {
@@ -665,44 +680,75 @@ function _esModificacionCarrito(texto) {
   return /\b(agrega|agr[eé]game|a[ñn]ade|a[ñn][aá]deme|quita|saca|elimina|cambia la cantidad|en realidad quiero|en realidad)\b/i.test(texto.toLowerCase());
 }
 
+// Retorna array de {item, qty} — puede ser más de un ítem si el cliente
+// especifica cantidades de varios productos en el mismo mensaje.
+// Retorna null si no detecta ninguna selección válida.
 function _detectarSeleccionPendingSkus(texto, pendingSkus) {
   if (!pendingSkus || !pendingSkus.length) return null;
   const t = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 
-  const qtyMatch = texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg)\b/i)
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function _resolverItem(fragmento, lista) {
+    const f = fragmento.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    // Ordinales
+    const ordinals = [
+      { re: /primer[ao]?|^1$|el\s+1|la\s+1|numero\s*1|opci[oó]n\s*1/, idx: 0 },
+      { re: /segund[ao]?|^2$|el\s+2|la\s+2|numero\s*2|opci[oó]n\s*2/, idx: 1 },
+      { re: /tercer[ao]?|^3$|el\s+3|la\s+3|numero\s*3|opci[oó]n\s*3/, idx: 2 },
+    ];
+    for (const { re, idx } of ordinals) {
+      if (re.test(f) && lista[idx]) return lista[idx];
+    }
+    // Superlativos
+    if (/mas barato|mas economico|mas barata|mas economica|menor precio/.test(f))
+      return [...lista].sort((a, b) => a.precio - b.precio)[0] || null;
+    if (/mas caro|mas grande|mayor precio|mas costoso|mas cara/.test(f))
+      return [...lista].sort((a, b) => b.precio - a.precio)[0] || null;
+    // Palabra clave del nombre del producto
+    for (const item of lista) {
+      const nombreNorm = item.nombre.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const palabras = f.split(/\s+/).filter(p => p.length > 3);
+      if (palabras.some(p => nombreNorm.includes(p))) return item;
+    }
+    // Único ítem + confirmación simple
+    if (lista.length === 1 && /^(si|dale|ok|ese|esa|bueno|claro|perfecto|de acuerdo|eso|confirmo)\b/.test(f))
+      return lista[0];
+    return null;
+  }
+
+  // ── Caso 1: número suelto (solo dígito, sin texto adicional) ─────────────
+  const _bareNum = t.match(/^(\d{1,2})$/);
+  if (_bareNum) {
+    const n = parseInt(_bareNum[1]);
+    if (pendingSkus.length === 1 && n >= 1 && n <= 10)
+      return [{ item: pendingSkus[0], qty: n }];
+    if (n >= 1 && n <= pendingSkus.length)
+      return [{ item: pendingSkus[n - 1], qty: 1 }];
+  }
+
+  // ── Caso 2: múltiples cantidades y productos en un mensaje ───────────────
+  // Detecta "2 contenedores y 10 bolsas" o "quiero 3 del primero y 5 del segundo"
+  const _multiMatch = [];
+  const _numRegex = /(\d+)\s+(?:unidades?\s+(?:de\s+)?)?(.{3,40}?)(?:\s+y\s+|$|,)/gi;
+  let _m;
+  while ((_m = _numRegex.exec(texto)) !== null) {
+    const qty = parseInt(_m[1]);
+    const fragmento = _m[2].trim();
+    const item = _resolverItem(fragmento, pendingSkus);
+    if (item && qty >= 1 && qty <= 999) {
+      if (!_multiMatch.find(x => x.item.sku === item.sku)) {
+        _multiMatch.push({ item, qty });
+      }
+    }
+  }
+  if (_multiMatch.length > 0) return _multiMatch;
+
+  // ── Caso 3: selección simple (un solo ítem) ───────────────────────────────
+  const qtyMatch = texto.match(/\b(\d+)\s*(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg|contenedores?|basureros?)\b/i)
                 || texto.match(/\bquiero\s+(\d+)\b/i);
   const qty = qtyMatch ? Math.max(1, parseInt(qtyMatch[1])) : 1;
-
-  const ordinalPatterns = [
-    { re: /\b(el|la)?\s*(primer[ao]?|primera?)\b|\bel\s+1\b|\bla\s+1\b|\bnumero\s*1\b|\bopci[on]{1,2}\s*1\b/, idx: 0 },
-    { re: /\b(el|la)?\s*(segund[ao]?)\b|\bel\s+2\b|\bla\s+2\b|\bnumero\s*2\b|\bopci[on]{1,2}\s*2\b/, idx: 1 },
-    { re: /\b(el|la)?\s*(tercer[ao]?)\b|\bel\s+3\b|\bla\s+3\b|\bnumero\s*3\b|\bopci[on]{1,2}\s*3\b/, idx: 2 },
-  ];
-  for (const { re, idx } of ordinalPatterns) {
-    if (re.test(t) && pendingSkus[idx]) return { item: pendingSkus[idx], qty };
-  }
-
-  if (/mas barato|mas economico|mas barata|mas economica|menor precio|mas econ/.test(t)) {
-    const item = [...pendingSkus].sort((a, b) => a.precio - b.precio)[0];
-    return item ? { item, qty } : null;
-  }
-  if (/mas caro|mas grande|mayor precio|mas costoso|mas cara/.test(t)) {
-    const item = [...pendingSkus].sort((a, b) => b.precio - a.precio)[0];
-    return item ? { item, qty } : null;
-  }
-
-  if (pendingSkus.length === 1 &&
-      /^(s[íi]|dale|ok|ese|esa|ese mismo|esa misma|ese entonces|bueno|claro|perfecto|de acuerdo|eso)\b/.test(t)) {
-    return { item: pendingSkus[0], qty };
-  }
-
-  // Número suelto sin unidades: "2" → índice de opción o cantidad si hay 1 sola opción
-  const _bareNum = texto.trim().match(/^(\d{1,2})$/);
-  if (_bareNum && !/\b(unidades?|rollos?|metros?|m2|piezas?|packs?|bolsas?|kilos?|kg)\b/i.test(texto)) {
-    const _n = parseInt(_bareNum[1]);
-    if (pendingSkus.length === 1 && _n >= 1 && _n <= 10) return { item: pendingSkus[0], qty: _n };
-    if (_n >= 1 && _n <= pendingSkus.length)             return { item: pendingSkus[_n - 1], qty: 1 };
-  }
+  const item = _resolverItem(t, pendingSkus);
+  if (item) return [{ item, qty }];
 
   return null;
 }
@@ -710,10 +756,10 @@ function _detectarSeleccionPendingSkus(texto, pendingSkus) {
 function _buildResumenCarrito(cart) {
   const lineas = cart.map(item => {
     const subtotal = item.precio * item.qty;
-    return `• ${item.nombre} × ${item.qty} — $${subtotal.toLocaleString('es-CL')}`;
+    return `• ${item.nombre}\n  SKU: ${item.sku} | Cantidad: ${item.qty} | $${subtotal.toLocaleString('es-CL')}`;
   });
   const total = cart.reduce((s, i) => s + i.precio * i.qty, 0);
-  return `Acá está tu pedido:\n\n${lineas.join('\n')}\n\n*Total estimado: $${total.toLocaleString('es-CL')}*\n\n¿Confirmamos y te envío el link de compra?`;
+  return `Acá está tu pedido:\n\n${lineas.join('\n\n')}\n\n*Total: $${total.toLocaleString('es-CL')}*\n\n¿Confirmas para que te envíe el link de compra?`;
 }
 
 // ─── Main processor ───────────────────────────────────────────────────────────
@@ -1032,16 +1078,25 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   {
     const _estadoB = getEstado(phone);
     if (_estadoB.awaitingMore && (_estadoB.pendingSkus || []).length > 0) {
-      const _selec = _detectarSeleccionPendingSkus(texto, _estadoB.pendingSkus);
-      if (_selec) {
-        const { item: _item, qty: _qty } = _selec;
+      const _selecs = _detectarSeleccionPendingSkus(texto, _estadoB.pendingSkus);
+      if (_selecs && _selecs.length > 0) {
         const _cartActual = _estadoB.cart || [];
-        setEstado(phone, {
-          cart: [..._cartActual, { ..._item, qty: _qty }],
-          pendingSkus: [],
-          awaitingMore: true,
-        });
-        _systemHint = `El cliente eligió "${_item.nombre}" (qty: ${_qty}) y fue agregado al pedido. Confirma brevemente la selección — solo di qué fue agregado — y pregunta amablemente si necesita algo más o sugiere un complemento relevante. No muestres el SKU ni el precio otra vez.`;
+        const _cartNuevo = [..._cartActual];
+        for (const { item: _item, qty: _qty } of _selecs) {
+          const _idx = _cartNuevo.findIndex(c => c.sku === _item.sku);
+          if (_idx >= 0) {
+            _cartNuevo[_idx] = { ..._cartNuevo[_idx], qty: _qty };
+          } else {
+            _cartNuevo.push({ ..._item, qty: _qty });
+          }
+        }
+        setEstado(phone, { cart: _cartNuevo, pendingSkus: [], awaitingMore: true });
+        const _nombresAgregados = _selecs.map(s => `"${s.item.nombre}" × ${s.qty}`).join(', ');
+        _systemHint = `El cliente agregó al pedido: ${_nombresAgregados}.
+Confirma brevemente qué fue agregado con nombre y cantidad.
+Luego pregunta amablemente si necesita algo más.
+NO muestres SKU ni precio de nuevo.
+NO digas "agregué" sin confirmar exactamente qué y cuánto.`;
         _pasoB = true;
       }
     }
