@@ -1390,8 +1390,14 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
           `(ej: "¿Es para uso industrial, doméstico o comercial?", "¿Dónde lo vas a instalar?"). ` +
           `NO muestres productos todavía.`;
       } else {
-        // Expandir la query del cliente a términos de catálogo vía OpenAI
-        const _queryExpandida = await expandirQueryBusqueda(_queryProductos);
+        // Si hay producto guardado de un turno anterior y el texto actual es el uso,
+        // construir la instrucción explícita para OpenAI en vez de la cadena mezclada
+        const _productoPrev = estadoActual.productoBuscado || '';
+        let _queryParaExpandir = _queryProductos;
+        if (_productoPrev && _productoPrev !== texto) {
+          _queryParaExpandir = `${_productoPrev} para ${texto}`;
+        }
+        const _queryExpandida = await expandirQueryBusqueda(_queryParaExpandir);
         const _queryFinal = _queryExpandida || _queryProductos;
 
         let { productos: _prods } = datos.buscarProductos(_queryFinal, canalActual);
