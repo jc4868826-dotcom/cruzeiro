@@ -520,6 +520,47 @@ Máximo 3 subcategorías. Solo subcategorías de la lista.`
   } catch { return null; }
 }
 
+// Expande el término del cliente a palabras clave que existen en el catálogo web.
+// Solo traduce coloquialismos a términos buscables — no mapea familias ni subcategorías.
+async function expandirQueryBusqueda(textoCliente) {
+  const openai = getOpenAI();
+  if (!openai) return null;
+  try {
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `Eres un traductor de búsqueda para un catálogo de productos industriales (gomas, cauchos, pisos, aseo, seguridad vial, ferretería).
+El cliente escribe en lenguaje coloquial chileno. Tu tarea: convertir su mensaje en 2 a 5 palabras clave de producto que probablemente aparezcan en el NOMBRE o DESCRIPCIÓN de un producto de catálogo.
+
+Reglas:
+- Devuelve SOLO las palabras clave separadas por espacio, sin JSON, sin explicación.
+- Usa términos genéricos de producto, no coloquialismos. Ej: "tacho"→"contenedor basura", "recipiente basura"→"contenedor basura", "botar basura"→"contenedor basura papelero".
+- NO inventes categorías. Si el mensaje no describe un producto físico, devuelve exactamente: NINGUNO
+- Piensa en cómo se llamaría el producto en una ficha técnica, no en cómo lo dice la calle.
+
+Ejemplos:
+Cliente: "busco tachos para el jardín" → contenedor basura
+Cliente: "necesito algo para el piso que no resbale" → piso goma antideslizante
+Cliente: "donde botar la basura en la oficina" → contenedor basura papelero
+Cliente: "pegamento para goma" → adhesivo goma
+Cliente: "cómo estás" → NINGUNO`
+        },
+        { role: 'user', content: textoCliente }
+      ],
+      max_tokens: 30,
+      temperature: 0,
+    });
+    const raw = (resp.choices[0]?.message?.content || '').trim();
+    if (!raw || /^NINGUNO$/i.test(raw)) return null;
+    return raw;
+  } catch (e) {
+    console.warn('[expandirQuery] error:', e.message);
+    return null;
+  }
+}
+
 async function llamarOpenAI(texto, productosContexto, historial = [], contextoCliente = null, conocimientoContexto = null, systemHint = null) {
   const openai = getOpenAI();
   if (!openai) return null;
@@ -1156,7 +1197,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       _systemHint = `El cliente quiere cerrar pero aún no indicó cuántas unidades de "${_item.nombre}" necesita. Pregunta SOLO: "¿Cuántas unidades de ${_item.nombre} necesitas?"`;
 
     } else if (intencion.tipo === 'PRODUCTO') {
-      const { productos: _prodsVar } = datos.buscarProductos(texto, canalActual);
+      const _qExpVar = await expandirQueryBusqueda(texto);
+      let { productos: _prodsVar } = datos.buscarProductos(_qExpVar || texto, canalActual);
+      if (_prodsVar.length === 0 && _qExpVar) { _prodsVar = datos.buscarProductos(texto, canalActual).productos; }
       conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
       if (_prodsVar.length > 0) {
         productosCtx = _prodsVar;
@@ -1206,7 +1249,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       return { respuesta, derivar: false, conversacion: _convCierre, leadUpdate, estado: getEstado(phone) };
 
     } else if (intencion.tipo === 'PRODUCTO') {
-      const { productos: _prodsNuevos } = datos.buscarProductos(texto, canalActual);
+      const _qExpNuevos = await expandirQueryBusqueda(texto);
+      let { productos: _prodsNuevos } = datos.buscarProductos(_qExpNuevos || texto, canalActual);
+      if (_prodsNuevos.length === 0 && _qExpNuevos) { _prodsNuevos = datos.buscarProductos(texto, canalActual).productos; }
       conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
       if (_prodsNuevos.length > 0) {
         productosCtx = _prodsNuevos;
@@ -1252,7 +1297,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       }
 
     } else if (intencion.tipo === 'PRODUCTO' || intencion.tipo === 'PREGUNTA') {
-      const { productos: _prodsAcum } = datos.buscarProductos(texto, canalActual);
+      const _qExpAcum = await expandirQueryBusqueda(texto);
+      let { productos: _prodsAcum } = datos.buscarProductos(_qExpAcum || texto, canalActual);
+      if (_prodsAcum.length === 0 && _qExpAcum) { _prodsAcum = datos.buscarProductos(texto, canalActual).productos; }
       conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
       if (_prodsAcum.length > 0) {
         productosCtx = _prodsAcum;
@@ -1270,7 +1317,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
     } else {
       // OTRO — intentar buscar producto; si no hay, tratar como cierre
-      const { productos: _prodsOtro } = datos.buscarProductos(texto, canalActual);
+      const _qExpOtro = await expandirQueryBusqueda(texto);
+      let { productos: _prodsOtro } = datos.buscarProductos(_qExpOtro || texto, canalActual);
+      if (_prodsOtro.length === 0 && _qExpOtro) { _prodsOtro = datos.buscarProductos(texto, canalActual).productos; }
       if (_prodsOtro.length > 0) {
         productosCtx = _prodsOtro;
         const _newPending = _buildPendingSkus(productosCtx);
@@ -1341,9 +1390,18 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
           `(ej: "¿Es para uso industrial, doméstico o comercial?", "¿Dónde lo vas a instalar?"). ` +
           `NO muestres productos todavía.`;
       } else {
-        const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
+        // Expandir la query del cliente a términos de catálogo vía OpenAI
+        const _queryExpandida = await expandirQueryBusqueda(_queryProductos);
+        const _queryFinal = _queryExpandida || _queryProductos;
+
+        let { productos: _prods } = datos.buscarProductos(_queryFinal, canalActual);
+        if (_prods.length === 0 && _queryExpandida) {
+          _prods = datos.buscarProductos(_queryProductos, canalActual).productos;
+        }
+
         productosCtx = _prods;
         conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+        console.log(`[BUSQUEDA] original="${_queryProductos}" expandida="${_queryExpandida || '(none)'}" → ${_prods.length} productos`);
 
         if (productosCtx.length > 0) {
           const _nuevosSkus = _buildPendingSkus(productosCtx);
