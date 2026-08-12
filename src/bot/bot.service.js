@@ -1294,39 +1294,61 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
     const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
 
-    // Determinar si tenemos suficiente contexto de uso para mostrar catálogo
-    // (solo aplica a canal ecommerce y solo en los primeros mensajes)
-    const _ultimoBotExplorando = historialConv.filter(m => m.rol === 'bot').slice(-1)[0]?.texto || '';
-    const _botYaPregunto = /para qu[eé]|qu[eé] uso|qu[eé] espacio|d[oó]nde lo vas|interior|exterior|aplicaci[oó]n|cu[aá]ntos m|cu[aá]l es el [aá]rea/i.test(_ultimoBotExplorando);
-    const _clienteMencionoUso = /para\s+(?:el|la|un|una|mi|\w+)|en\s+(?:el|la|mi|un|una)|(?:interior|exterior|cocina|ba[nñ]o|terraza|pasillo|bodega|garaje|taller|oficina|escalera|rampa|piscina|industria|hospital|colegio|estadio)/i.test(texto);
-    const _textoEsCorto = texto.trim().split(/\s+/).length <= 4;
-    const _necesitaContexto =
-      canalActual !== 'mayorista' &&
-      _textoEsCorto &&
-      !_botYaPregunto &&
-      !_clienteMencionoUso &&
-      historialConv.length < 6;
+    // ── GUARD: bloquear búsqueda en turnos de identificación ─────────────
+    // El bloque de hints (más abajo) corre DESPUÉS de este bloque, así que
+    // estadoActual.canal puede no reflejar aún el canal del turno en curso.
+    // Usamos señales directas del historial en lugar de depender del estado.
+    const _ultimoBotExplorando = _mensajesBot.slice(-1)[0]?.texto || '';
+    const _botPreguntoSiEsCliente = /ya eres cliente|eres cliente|cliente de cruzeiro|me das tu rut|dame tu rut/i.test(_ultimoBotExplorando);
 
-    // Fix 2 solo aplica cuando la identificación ya está completa
-    const _identificacionCompleta =
-      !!estadoActual.rut ||
-      !!estadoActual.rut_no_encontrado ||
-      (estadoActual.canal === 'ecommerce' && _mensajesCliente.length >= 3);
+    // Turno 2: cliente responde sí/no a "¿eres cliente?" → no buscar todavía
+    const _clienteRespondeIdentificacion =
+      _botPreguntoSiEsCliente &&
+      !estadoActual.rut &&
+      /^(no|nop|nel|para nada|negativo|nunca|tampoco|ni|primera vez|nuevo|s[ií]|dale|claro|soy|tengo|afirmativo)\b/i.test(texto.trim());
 
-    if (_necesitaContexto && _identificacionCompleta) {
+    // Turno 1: cliente dice qué quiere, bot aún no preguntó si es cliente → no buscar
+    const _esTurno1SinIdentificar =
+      _mensajesCliente.length === 1 &&
+      !estadoActual.rut &&
+      !_botPreguntoSiEsCliente;
+
+    if (_clienteRespondeIdentificacion || _esTurno1SinIdentificar) {
       productosCtx = [];
-      _systemHint = `El cliente mencionó "${texto}". ANTES de mostrar productos, ` +
-        `pregunta UNA sola cosa: ¿para qué espacio o uso lo necesita? ` +
-        `(ej: "¿Es para uso industrial, doméstico o comercial?", "¿Dónde lo vas a instalar?"). ` +
-        `NO muestres productos todavía.`;
+      // No cambiar de fase — el hint de identificación maneja este turno
     } else {
-      const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
-      productosCtx = _prods;
-      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+      // Determinar si tenemos suficiente contexto de uso para mostrar catálogo
+      const _botYaPregunto = /para qu[eé]|qu[eé] uso|qu[eé] espacio|d[oó]nde lo vas|interior|exterior|aplicaci[oó]n|cu[aá]ntos m|cu[aá]l es el [aá]rea/i.test(_ultimoBotExplorando);
+      const _clienteMencionoUso = /para\s+(?:el|la|un|una|mi|\w+)|en\s+(?:el|la|mi|un|una)|(?:interior|exterior|cocina|ba[nñ]o|terraza|pasillo|bodega|garaje|taller|oficina|escalera|rampa|piscina|industria|hospital|colegio|estadio)/i.test(texto);
+      const _textoEsCorto = texto.trim().split(/\s+/).length <= 4;
+      const _necesitaContexto =
+        canalActual !== 'mayorista' &&
+        _textoEsCorto &&
+        !_botYaPregunto &&
+        !_clienteMencionoUso &&
+        historialConv.length < 6;
 
-      if (productosCtx.length > 0) {
-        const _nuevosSkus = _buildPendingSkus(productosCtx);
-        setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
+      // Identificación completa: tiene RUT, se confirmó sin RUT, o ya es ecommerce
+      const _identificacionCompleta =
+        !!estadoActual.rut ||
+        !!estadoActual.rut_no_encontrado ||
+        estadoActual.canal === 'ecommerce';
+
+      if (_necesitaContexto && _identificacionCompleta) {
+        productosCtx = [];
+        _systemHint = `El cliente mencionó "${texto}". ANTES de mostrar productos, ` +
+          `pregunta UNA sola cosa: ¿para qué espacio o uso lo necesita? ` +
+          `(ej: "¿Es para uso industrial, doméstico o comercial?", "¿Dónde lo vas a instalar?"). ` +
+          `NO muestres productos todavía.`;
+      } else {
+        const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
+        productosCtx = _prods;
+        conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+
+        if (productosCtx.length > 0) {
+          const _nuevosSkus = _buildPendingSkus(productosCtx);
+          setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
+        }
       }
     }
   }
