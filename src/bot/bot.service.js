@@ -301,8 +301,9 @@ ${recienIdentificado ? '\nATENCIÓN: El cliente se identificó en medio de la co
     if (seccionesCte.length > 0) clienteSeccion = seccionesCte.join('\n\n') + '\n';
   }
 
-  return `${clienteSeccion}
-Eres Cru, vendedor experto de Cruzeiro Empresas, especialistas en gomas, cauchos y materiales industriales en Chile. Eres cálido, cercano y directo — como un buen vendedor chileno que conoce sus productos de memoria. Máximo 3 oraciones por mensaje. Siempre terminas con UNA sola pregunta. Muestra interés genuino.
+  const _hintInstruccion = contextoCliente?._hint || '';
+
+  return `${clienteSeccion}${_hintInstruccion ? `⚡ INSTRUCCIÓN PRIORITARIA PARA ESTE TURNO:\n${_hintInstruccion}\n\n` : ''}Eres Cru, vendedor experto de Cruzeiro Empresas, especialistas en gomas, cauchos y materiales industriales en Chile. Eres cálido, cercano y directo — como un buen vendedor chileno que conoce sus productos de memoria. Máximo 3 oraciones por mensaje. Siempre terminas con UNA sola pregunta. Muestra interés genuino.
 
 ════════════════════════════════════════
 REGLAS CRÍTICAS — NUNCA VIOLAR
@@ -1077,7 +1078,17 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     if (intencion.tipo === 'CONFIRMACION') {
       const _cartItems = estadoActual.cart || [];
       if (_cartItems.length > 0 && (canalActual === 'ecommerce' || !canalActual)) {
-        const _url = buildCartUrl(_cartItems);
+        // Re-enriquecer wooIds con el WooMap actual (puede haberse cargado después de acumular)
+        const _wooMapFresh = dataStore.getWooMap();
+        const _cartEnriquecido = _cartItems.map(item => {
+          if (item.wooId) return item;
+          const wooId = _wooMapFresh[item.sku] || _wooMapFresh[item.sku?.toUpperCase()] || null;
+          if (!wooId) console.warn('[bot/cierre] SKU sin wooId al cerrar:', item.sku);
+          return { ...item, wooId };
+        });
+        console.log('[bot/cierre] cart al cerrar:', JSON.stringify(_cartEnriquecido.map(i => ({ sku: i.sku, wooId: i.wooId, qty: i.qty }))));
+
+        const _url = buildCartUrl(_cartEnriquecido);
         if (_url) {
           respuesta = `¡Listo! 🛒 Aquí está tu link para completar la compra:\n${_url}`;
           leadUpdate.link_carrito_enviado = true;
@@ -1092,18 +1103,11 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
             } catch (_e) {}
           }
         } else {
-          respuesta = 'Tuve un problema generando el link. Un ejecutivo te lo envía en breve.';
-          if (estadoActual.ejecutivoAsignado) {
-            const _resumenExec = _cartItems.map(i =>
-              `${i.nombre} × ${i.qty} — $${(i.precio * i.qty).toLocaleString('es-CL')}`
-            ).join('\n');
-            try {
-              await sendWhatsAppAlert(estadoActual.ejecutivoAsignado, phone, estadoActual.rut, [
-                ...historialConv,
-                { rol: 'bot', texto: `[Carrito — fallo link]\n${_resumenExec}` },
-              ]);
-            } catch (_) {}
-          }
+          const _skusFallback = _cartEnriquecido.map(i => `${i.sku} x${i.qty || 1}`).join(', ');
+          respuesta = `¡Listo! Para completar tu compra ve directamente a nuestra tienda 🛒\nhttps://cruzeirogomas.cl/tienda/\n\nTus productos: ${_skusFallback}`;
+          leadUpdate.link_carrito_enviado = true;
+          leadUpdate.etapa_pipeline = 'ganado';
+          setEstado(phone, { fase: 'explorando', cart: [], pendingSkus: [], selectedItem: null });
         }
       } else {
         respuesta = 'Para completar tu pedido, un ejecutivo te contactará con el detalle.';
@@ -1285,13 +1289,35 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   else {
     const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
     const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
-    const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
-    productosCtx = _prods;
-    conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
 
-    if (productosCtx.length > 0) {
-      const _nuevosSkus = _buildPendingSkus(productosCtx);
-      setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
+    // Determinar si tenemos suficiente contexto de uso para mostrar catálogo
+    // (solo aplica a canal ecommerce y solo en los primeros mensajes)
+    const _ultimoBotExplorando = historialConv.filter(m => m.rol === 'bot').slice(-1)[0]?.texto || '';
+    const _botYaPregunto = /para qu[eé]|qu[eé] uso|qu[eé] espacio|d[oó]nde lo vas|interior|exterior|aplicaci[oó]n|cu[aá]ntos m|cu[aá]l es el [aá]rea/i.test(_ultimoBotExplorando);
+    const _clienteMencionoUso = /para\s+(?:el|la|un|una|mi|\w+)|en\s+(?:el|la|mi|un|una)|(?:interior|exterior|cocina|ba[nñ]o|terraza|pasillo|bodega|garaje|taller|oficina|escalera|rampa|piscina|industria|hospital|colegio|estadio)/i.test(texto);
+    const _textoEsCorto = texto.trim().split(/\s+/).length <= 4;
+    const _necesitaContexto =
+      canalActual !== 'mayorista' &&
+      _textoEsCorto &&
+      !_botYaPregunto &&
+      !_clienteMencionoUso &&
+      historialConv.length < 6;
+
+    if (_necesitaContexto) {
+      productosCtx = [];
+      _systemHint = `El cliente mencionó "${texto}". ANTES de mostrar productos, ` +
+        `pregunta UNA sola cosa: ¿para qué espacio o uso lo necesita? ` +
+        `(ej: "¿Es para uso industrial, doméstico o comercial?", "¿Dónde lo vas a instalar?"). ` +
+        `NO muestres productos todavía.`;
+    } else {
+      const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
+      productosCtx = _prods;
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(texto);
+
+      if (productosCtx.length > 0) {
+        const _nuevosSkus = _buildPendingSkus(productosCtx);
+        setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
+      }
     }
   }
 
@@ -1302,23 +1328,42 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── Hint de identificación ────────────────────────────────────────────
   let identificacionHint = '';
   if (_esPrimeraMayorista) {
-    // Fase 1.3 — Saludo mayorista con ejecutivo asignado
     const _ejSaludo = datos.buscarEjecutivo(estadoActual.ejecutivoAsignado);
     const _ejNombreSaludo = _ejSaludo?.nombre || 'nuestro ejecutivo de ventas';
     const _razonSocialSaludo = estadoActual.clienteNombre || 'estimado cliente';
-    identificacionHint = `El cliente acaba de ser identificado como MAYORISTA. ` +
+    identificacionHint =
+      `El cliente acaba de ser identificado como MAYORISTA. ` +
       `Responde EXACTAMENTE con este mensaje (sin agregar nada más):\n` +
       `"Hola ${_razonSocialSaludo}, veo que eres cliente Mayorista de Cruzeiro. ` +
       `Tu ejecutivo asignado es *${_ejNombreSaludo}* — puedes contactarlo directamente ` +
       `si lo prefieres, o seguir conversando conmigo para lo que necesites. 😊"`;
+
   } else if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
     identificacionHint = 'El cliente está registrado pero sin compras recientes. Salúdalo: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?"';
+
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
-  } else if (!estadoActual.rut && historialConv.length < 4) {
-    identificacionHint = 'Si no lo has hecho, pregunta naturalmente si el cliente ha comprado antes con nosotros.';
+
+  } else if (!estadoActual.rut && historialConv.length === 0) {
+    identificacionHint =
+      `Es el primer mensaje de este cliente. DEBES preguntar obligatoriamente:\n` +
+      `"¡Hola! Bienvenido a Cruzeiro 😊 ¿Ya eres cliente nuestro? Si es así, dime tu RUT ` +
+      `y te atiendo más rápido. Si es tu primera vez, ¡con gusto te ayudo igual!"`;
+
+  } else if (!estadoActual.rut && historialConv.length > 0 && historialConv.length < 4) {
+    const _preguntaYaHecha = historialConv
+      .filter(m => m.rol === 'bot')
+      .some(m => /rut|eres cliente|has comprado|cliente nuestro/i.test(m.texto));
+    if (!_preguntaYaHecha) {
+      identificacionHint =
+        `Todavía no sabes si es cliente. Pregunta: ` +
+        `"Por cierto, ¿ya eres cliente de Cruzeiro? Si me das tu RUT te puedo atender mejor."`;
+    }
+
   } else if (!estadoActual.rut && historialConv.length >= 4) {
-    identificacionHint = 'Ya llevas varios mensajes sin identificar al cliente. Menciona que podrías atenderlo mejor si supieras si es cliente habitual.';
+    identificacionHint =
+      `Llevas varios mensajes sin identificar al cliente. ` +
+      `Menciona brevemente: "Para atenderte aún mejor, ¿me podrías dar tu RUT si eres cliente habitual?"`;
   }
   const ctxParaPrompt = {
     ...(contextoCliente || {}),
