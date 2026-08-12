@@ -1364,6 +1364,13 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
     if (_clienteRespondeIdentificacion || _esTurno1SinIdentificar) {
       productosCtx = [];
+      // Si el cliente dice "no" → fijar canal ecommerce YA, sin esperar al bloque de hints
+      if (_clienteRespondeIdentificacion) {
+        const _diceNo = /^(no|nop|nel|para nada|negativo|nunca|tampoco|ni|primera vez|nuevo)\b/i.test(texto.trim());
+        if (_diceNo) {
+          setEstado(phone, { canal: 'ecommerce', rut: null, ejecutivoAsignado: null });
+        }
+      }
       // No cambiar de fase — el hint de identificación maneja este turno
     } else {
       // Determinar si tenemos suficiente contexto de uso para mostrar catálogo
@@ -1390,15 +1397,13 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
           `(ej: "¿Es para uso industrial, doméstico o comercial?", "¿Dónde lo vas a instalar?"). ` +
           `NO muestres productos todavía.`;
       } else {
-        // Si hay producto guardado de un turno anterior y el texto actual es el uso,
-        // construir la instrucción explícita para OpenAI en vez de la cadena mezclada
+        // Si hay producto guardado, expandir solo ese — el uso va a GPT vía historial,
+        // no mezclado en la query de búsqueda (evita que "patio" pise a "basureros")
         const _productoPrev = estadoActual.productoBuscado || '';
-        let _queryParaExpandir = _queryProductos;
-        if (_productoPrev && _productoPrev !== texto) {
-          _queryParaExpandir = `${_productoPrev} para ${texto}`;
-        }
-        const _queryExpandida = await expandirQueryBusqueda(_queryParaExpandir);
-        const _queryFinal = _queryExpandida || _queryProductos;
+        const _queryExpandida = _productoPrev
+          ? await expandirQueryBusqueda(_productoPrev)
+          : await expandirQueryBusqueda(_queryProductos);
+        const _queryFinal = _queryExpandida || _productoPrev || _queryProductos;
 
         let { productos: _prods } = datos.buscarProductos(_queryFinal, canalActual);
         if (_prods.length === 0 && _queryExpandida) {
