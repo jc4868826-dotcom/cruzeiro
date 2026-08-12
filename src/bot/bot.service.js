@@ -34,6 +34,7 @@ const _STATE_DEFAULTS = {
   clienteNombre: null,
   subcategoriasActivas: null,
   intentos_rut_fallidos: 0,
+  mayoristaSaludado: false,
   // Máquina de estados del carrito
   fase: 'explorando',   // 'explorando' | 'eligiendo' | 'confirmando_qty' | 'acumulando' | 'cerrando'
   pendingSkus: [],      // opciones presentadas al cliente en la fase 'eligiendo'
@@ -794,6 +795,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── PASO 1: Leer estado actual ────────────────────────────────────────────
   const estado = getEstado(phone);
+  const _canalAntesDeProcesar = estado.canal; // snapshot para detectar primera clasificación mayorista
   const historialConv = (conversacionExistente?.mensajes || [])
     .filter(m => {
       const r = m.rol || m.role || m.from || '';
@@ -880,6 +882,16 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   const estadoActual = getEstado(phone);
   if (!estadoActual.canal && conversacionExistente?.canal) {
     estadoActual.canal = conversacionExistente.canal;
+  }
+
+  // ── Detectar primera clasificación como mayorista → flag para saludo ──────
+  const _esPrimeraMayorista = (
+    estadoActual.canal === 'mayorista' &&
+    _canalAntesDeProcesar !== 'mayorista' &&
+    !estadoActual.mayoristaSaludado
+  );
+  if (_esPrimeraMayorista) {
+    setEstado(phone, { mayoristaSaludado: true });
   }
 
   if (!estadoActual.clienteNombre) {
@@ -1008,6 +1020,48 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   let _systemHint = null;
   let productosCtx = [];
   let conocimientoCtx = [];
+
+  // ── FASE 2: Consulta de pedidos para clientes mayoristas ─────────────────
+  const _PEDIDO_KW = /pedido|despacho|nota\s*de\s*venta|factura|entrega|orden|donde\s*est|cuando\s*llega|estado/i;
+  if (
+    canalActual === 'mayorista' &&
+    estadoActual.rut &&
+    _PEDIDO_KW.test(texto.normalize('NFD').replace(/[̀-ͯ]/g, ''))
+  ) {
+    const _pedidosFTP = datos.buscarEstadoPedidosPorRut(estadoActual.rut);
+    let _respPedido;
+    if (_pedidosFTP.length === 0) {
+      _respPedido = 'No encontré pedidos registrados para tu RUT. Si crees que hay un error, escríbeme el número de nota de venta y lo reviso.';
+    } else {
+      const _top5 = _pedidosFTP.slice(0, 5);
+      const _lineas = _top5.map(p =>
+        `*NV ${p.notaVenta}* — ${p.statusPedido || p.estado || 'Sin estado'}\n📅 Fecha: ${p.fechaNV || '-'}\n🚚 Entrega estimada: ${p.fechaEntrega || 'sin fecha'}`
+      ).join('\n\n');
+      _respPedido = `📦 *Tus últimos pedidos:*\n\n${_lineas}\n\n¿Necesitas más detalle sobre alguno?`;
+
+      // Alerta al ejecutivo asignado
+      if (estadoActual.ejecutivoAsignado) {
+        const _ejAlert = datos.buscarEjecutivo(estadoActual.ejecutivoAsignado);
+        const _ejFono = _ejAlert?.fono || _ejAlert?.telefono;
+        if (_ejFono) {
+          const _pUlt = _pedidosFTP[0];
+          const _alertMsg =
+            `🔔 *Alerta FunnelOS* — Tu cliente *${estadoActual.clienteNombre || 'cliente'}* ` +
+            `(RUT ${estadoActual.rut}) consultó el estado de su pedido.\n` +
+            `Última NV: ${_pUlt.notaVenta} — Estado: ${_pUlt.statusPedido || _pUlt.estado}\n` +
+            `Revisar si requiere gestión.`;
+          try {
+            const { enviarMensaje } = require('../../integrations/whatsappAdapter');
+            await enviarMensaje(_ejFono, _alertMsg);
+          } catch (_e) {
+            logger.warn(`[bot] Alerta pedido ejecutivo no enviada: ${_e.message}`);
+          }
+        }
+      }
+    }
+    const _convPedido = await _guardarMensajes(phone, texto, _respPedido, conversacionExistente, canal_tipo);
+    return { respuesta: _respPedido, derivar: false, conversacion: _convPedido, leadUpdate, estado: getEstado(phone) };
+  }
 
   // ── CLASIFICAR INTENCIÓN VIA GPT ─────────────────────────────────────
   const intencion = await clasificarIntencion(
@@ -1247,7 +1301,17 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── Hint de identificación ────────────────────────────────────────────
   let identificacionHint = '';
-  if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
+  if (_esPrimeraMayorista) {
+    // Fase 1.3 — Saludo mayorista con ejecutivo asignado
+    const _ejSaludo = datos.buscarEjecutivo(estadoActual.ejecutivoAsignado);
+    const _ejNombreSaludo = _ejSaludo?.nombre || 'nuestro ejecutivo de ventas';
+    const _razonSocialSaludo = estadoActual.clienteNombre || 'estimado cliente';
+    identificacionHint = `El cliente acaba de ser identificado como MAYORISTA. ` +
+      `Responde EXACTAMENTE con este mensaje (sin agregar nada más):\n` +
+      `"Hola ${_razonSocialSaludo}, veo que eres cliente Mayorista de Cruzeiro. ` +
+      `Tu ejecutivo asignado es *${_ejNombreSaludo}* — puedes contactarlo directamente ` +
+      `si lo prefieres, o seguir conversando conmigo para lo que necesites. 😊"`;
+  } else if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
     identificacionHint = 'El cliente está registrado pero sin compras recientes. Salúdalo: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?"';
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
@@ -1264,6 +1328,22 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // ── Llamar a OpenAI ───────────────────────────────────────────────────
   respuesta = await llamarOpenAI(texto, productosCtx, historialConv, ctxParaPrompt, conocimientoCtx, _systemHint)
     || 'Estoy aquí para ayudarte. ¿En qué puedo orientarte?';
+
+  // ── FASE 3: Fix placeholder [carrito] si GPT lo escribió por error ───────
+  if (respuesta.includes('[carrito]')) {
+    const _cartItemsFase3 = estadoActual.cart || [];
+    let _urlFase3 = null;
+    if (_cartItemsFase3.length > 0) {
+      _urlFase3 = buildCartUrl(_cartItemsFase3);
+    }
+    if (_urlFase3) {
+      respuesta = respuesta.replace('[carrito]', _urlFase3);
+      leadUpdate.link_carrito_enviado = true;
+      setEstado(phone, { fase: 'explorando', cart: [], pendingSkus: [], selectedItem: null });
+    } else {
+      respuesta = respuesta.replace('[carrito]', 'https://cruzeirogomas.cl/tienda/');
+    }
+  }
 
   // ── PASO 10: Guardar y retornar ───────────────────────────────────────────
   const conversacion = await _guardarMensajes(phone, texto, respuesta, conversacionExistente, canal_tipo);

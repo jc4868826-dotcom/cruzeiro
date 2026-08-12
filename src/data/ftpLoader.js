@@ -13,6 +13,7 @@ let _store = {
   stockMap:     new Map(),
   wooMap:       {},
   wooOrders:    [],
+  estadoPedidos:[],
   lastLoaded:   null,
 };
 
@@ -102,6 +103,44 @@ function cargarCotizacionesFTP(rows) {
       totalItem:      parsearPrecio(row['Total_item']),
       estado:         String(row['Estado']           || '').trim(),
       fecha:          String(row['Fecha']            || '').trim(),
+    }));
+}
+
+function _parseFechaNVRaw(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (m) {
+    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function cargarEstadoPedidosFTP(rows) {
+  return rows
+    .filter(row => String(row['Rut'] || '').trim() !== '')
+    .map(row => ({
+      notaVenta:      String(row['Nota_Venta']           || '').trim(),
+      statusPedido:   String(row['status_pedido']         || '').trim(),
+      fechaFacturado: String(row['fecha_facturado']       || '').trim(),
+      rut:            String(row['Rut']                   || '').replace(/\D/g, ''),
+      razonSocial:    String(row['RazonSocial']           || '').trim(),
+      vendedor:       String(row['Vendedor']              || '').trim(),
+      fechaNV:        String(row['Fecha Nota de Venta']   || '').trim(),
+      fechaEntrega:   String(row['Fecha Entrega']         || '').trim(),
+      ordenCompra:    String(row['ordencompra']           || '').trim(),
+      estado:         String(row['Estado']                || '').trim(),
+      tipoNegocio:    String(row['tipo_negocio']          || '').trim(),
+      tipoTransporte: String(row['tipotransporte']        || '').trim(),
+      transporte:     String(row['transporte']            || '').trim(),
+      direccion:      String(row['direcciondespacho']     || '').trim(),
+      comuna:         String(row['Comuna']                || '').trim(),
+      _fechaNVParsed: _parseFechaNVRaw(row['Fecha Nota de Venta']),
     }));
 }
 
@@ -201,18 +240,20 @@ async function downloadAndParse() {
       secure:   false,
     });
 
-    let clientesMap  = _store.clientesMap;
-    let ventasRaw    = _store.ventasRaw;
-    let cotizaciones = _store.cotizaciones;
-    let stockMap     = _store.stockMap;
-    let wooMap       = _store.wooMap;
-    let wooOrders    = _store.wooOrders;
+    let clientesMap   = _store.clientesMap;
+    let ventasRaw     = _store.ventasRaw;
+    let cotizaciones  = _store.cotizaciones;
+    let stockMap      = _store.stockMap;
+    let wooMap        = _store.wooMap;
+    let wooOrders     = _store.wooOrders;
+    let estadoPedidos = _store.estadoPedidos;
 
     const tareas = [
-      { file: 'Clientes.csv',        load: rows => { clientesMap  = cargarClientesFTP(rows); } },
-      { file: 'Ventas_OR.csv',       load: rows => { ventasRaw    = cargarVentasFTP(rows); } },
-      { file: 'Cotizaciones_OR.csv', load: rows => { cotizaciones = cargarCotizacionesFTP(rows); } },
-      { file: 'StockSucursal.csv',   load: rows => { stockMap     = cargarStockFTP(rows); } },
+      { file: 'Clientes.csv',             load: rows => { clientesMap   = cargarClientesFTP(rows); } },
+      { file: 'Ventas_OR.csv',            load: rows => { ventasRaw     = cargarVentasFTP(rows); } },
+      { file: 'Cotizaciones_OR.csv',      load: rows => { cotizaciones  = cargarCotizacionesFTP(rows); } },
+      { file: 'StockSucursal.csv',        load: rows => { stockMap      = cargarStockFTP(rows); } },
+      { file: 'Estado_Notas_Pedido.csv',  load: rows => { estadoPedidos = cargarEstadoPedidosFTP(rows); } },
     ];
 
     for (const { file, load } of tareas) {
@@ -243,8 +284,8 @@ async function downloadAndParse() {
       console.error('[ftpLoader] Error cargando RegPedidos.xlsx:', e.message);
     }
 
-    _store = { clientesMap, ventasRaw, cotizaciones, stockMap, wooMap, wooOrders, lastLoaded: new Date() };
-    console.log(`[ftpLoader] OK: ${clientesMap.size} clientes | ${ventasRaw.length} ventas | ${cotizaciones.length} cotizaciones | ${stockMap.size} SKUs stock | ${Object.keys(wooMap).length} wooMap | ${wooOrders.length} pedidosWoo`);
+    _store = { clientesMap, ventasRaw, cotizaciones, stockMap, wooMap, wooOrders, estadoPedidos, lastLoaded: new Date() };
+    console.log(`[ftpLoader] OK: ${clientesMap.size} clientes | ${ventasRaw.length} ventas | ${cotizaciones.length} cotizaciones | ${stockMap.size} SKUs stock | ${Object.keys(wooMap).length} wooMap | ${wooOrders.length} pedidosWoo | ${estadoPedidos.length} estadoPedidos`);
   } catch (e) {
     console.error('[ftpLoader] Error de conexión FTP:', e.message);
   } finally {
@@ -267,10 +308,11 @@ function getCotizaciones() { return _store.cotizaciones; }
 function getStockMap()     { return _store.stockMap; }
 function getWooMap()       { return _store.wooMap; }
 function getWooOrders()    { return _store.wooOrders; }
+function getEstadoPedidos(){ return _store.estadoPedidos; }
 function getWooOrdersByRut(rut) {
   const norm = String(rut || '').replace(/[^0-9]/g, '');
   if (!norm) return [];
   return _store.wooOrders.filter(o => o.rut === norm);
 }
 
-module.exports = { init, getClientesMap, getVentasRaw, getCotizaciones, getStockMap, getWooMap, getWooOrders, getWooOrdersByRut };
+module.exports = { init, getClientesMap, getVentasRaw, getCotizaciones, getStockMap, getWooMap, getWooOrders, getEstadoPedidos, getWooOrdersByRut };

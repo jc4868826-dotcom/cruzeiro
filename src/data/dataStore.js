@@ -67,6 +67,7 @@ function getCotizaciones()       { return ftpLoader.getCotizaciones(); }
 function getVentasFTPRaw()       { return ftpLoader.getVentasRaw(); }
 function getWooMap()             { return ftpLoader.getWooMap(); }
 function getWooOrders()          { return ftpLoader.getWooOrders(); }
+function getEstadoPedidos()      { return ftpLoader.getEstadoPedidos(); }
 function getWooOrdersByRut(rut)  { return ftpLoader.getWooOrdersByRut(rut); }
 
-module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getWebProductos, getMaestraProductos, getClientesFTP, getCotizacionesFTP, getCotizaciones, getVentasFTPRaw, getWooMap, getWooOrders, getWooOrdersByRut };
+module.exports = { init, reload, startAutoReload, getCatalogo, getVentasMap, getVentasRaw, getUsos, getPedidos, getEjecutivos, getWebProductos, getMaestraProductos, getClientesFTP, getCotizacionesFTP, getCotizaciones, getVentasFTPRaw, getWooMap, getWooOrders, getEstadoPedidos, getWooOrdersByRut };

@@ -164,6 +164,35 @@ function cargarTodosEjecutivos() { return dataStore.getEjecutivos(); }
 function cargarClientes()        { return [...dataStore.getVentasMap().values()]; }
 function cargarPedidos()         { return dataStore.getPedidos(); }
 
+// ─── Mapa ejecutivos canónico (retorna objeto con contacto completo) ─────────
+
+const EJECUTIVOS_MAP = {
+  'IRMA JARA':       { nombre: 'Irma Jara',        email: 'i.jara@cruzeirogomas.cl',      telefono: '+56933826837' },
+  'MARCOS DIAMOND':  { nombre: 'Marcos Diamond',    email: 'mdiamond@cruzeirogomas.cl',    telefono: '+56975681156' },
+  'NICOLAS PACHECO': { nombre: 'Nicolás Pacheco',   email: 'npacheco@cruzeiroempresas.cl', telefono: '+56933826837' },
+  'ALEJANDRO OXMAN': { nombre: 'Alejandro Oxman',   email: 'aoxman@cruzeiroempresas.cl',   telefono: '+56932327146' },
+  // Aliases cartera ex-ejecutivos → Nicolás Pacheco
+  'ALEJANDRO PARRA':   { nombre: 'Nicolás Pacheco', email: 'npacheco@cruzeiroempresas.cl', telefono: '+56933826837' },
+  'MARIA JOSE UTCHES': { nombre: 'Nicolás Pacheco', email: 'npacheco@cruzeiroempresas.cl', telefono: '+56933826837' },
+  // Alias cartera → Cynthia Romo
+  'CLAUDIA MARTINEZ':  { nombre: 'Cynthia Romo',    email: 'cromos@cruzeiroempresas.cl',   telefono: '+56932327135' },
+  '__DEFAULT__':       { nombre: 'Cynthia Romo',    email: 'cromos@cruzeiroempresas.cl',   telefono: '+56932327135' },
+};
+
+function resolverEjecutivoObj(vendedorRaw) {
+  if (!vendedorRaw) return EJECUTIVOS_MAP['__DEFAULT__'];
+  const norm = String(vendedorRaw)
+    .toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\(.*?\)/g, '')
+    .trim();
+  for (const [key, val] of Object.entries(EJECUTIVOS_MAP)) {
+    if (key === '__DEFAULT__') continue;
+    if (norm.includes(key)) return val;
+  }
+  return EJECUTIVOS_MAP['__DEFAULT__'];
+}
+
 // ─── Mapa vendedor → username ejecutivo ──────────────────────────────────────
 
 const MAPA_EJECUTIVOS = {
@@ -191,6 +220,8 @@ const MAPA_EJECUTIVOS = {
   'CADENAS':                      'cynthia.romo',
   'CLAUDIA MARTINEZ GALARCE':     'cynthia.romo',
   'CLAUDIA MARTÍNEZ GALARCE':     'cynthia.romo',
+  'CLAUDIA MARTINEZ':             'cynthia.romo',
+  'CLAUDIA MARTÍNEZ':             'cynthia.romo',
   'ANDRES VARELA':                'cynthia.romo',
   'GUSTAVO CARDONA':              'cynthia.romo',
   'GERARDO AGUIRRE':              'cynthia.romo',
@@ -223,6 +254,26 @@ function resolverEjecutivo(vendedor) {
   return null;
 }
 
+// ─── Parser de fechas para Estado_Notas_Pedido ───────────────────────────────
+
+function _parseFechaNV(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  // ISO: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // DD-MM-YYYY o DD/MM/YYYY
+  const m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (m) {
+    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // Fallback: formato dd-mon-yy (mismo que Ventas_OR)
+  return _parseFechaEmision(s);
+}
+
 // ─── Clasificación por RUT: dos búsquedas FTP ────────────────────────────────
 // Retorna { canal, tipo, cliente, razonSocial, ejecutivo }
 // tipo: 'nuevo' (no en Clientes.csv) | 'inactivo' (sin ventas 180d) | 'activo' (tiene ventas)
@@ -243,17 +294,40 @@ function clasificarPorRut(rutRaw) {
   }
   if (!clienteRaw) return { canal: 'ecommerce', tipo: 'nuevo', cliente: null };
 
-  // BÚSQUEDA 2: Ventas_OR.csv — últimos 180 días
-  const fuente = dataStore.getVentasFTPRaw().length
-    ? dataStore.getVentasFTPRaw()
-    : dataStore.getVentasRaw();
+  // BÚSQUEDA 2: Estado_Notas_Pedido (FTP) — últimos 180 días
+  // Si no está disponible, fallback a Ventas_OR.csv
   const limite = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
-  const tieneCompraReciente = fuente.some(v => {
-    const rutV = String(v.rut || v.Rut || '').replace(/\D/g, '');
-    if (rutV !== rutDigitos) return false;
-    const fecha = _parseFechaEmision(v.fechaEmision || v.FechaEmision);
-    return fecha && fecha >= limite;
-  });
+  const estadoPedidos = dataStore.getEstadoPedidos();
+  let tieneCompraReciente = false;
+  let vendedorReciente = clienteRaw.vendedor || '';
+
+  if (estadoPedidos.length > 0) {
+    // Rut en Estado_Notas_Pedido es numérico sin puntos ni guión
+    const filasRut = estadoPedidos.filter(p => p.rut === rutDigitos);
+    const reciente = filasRut
+      .filter(p => { const f = p._fechaNVParsed || _parseFechaNV(p.fechaNV); return f && f >= limite; })
+      .sort((a, b) => {
+        const fa = a._fechaNVParsed || _parseFechaNV(a.fechaNV) || new Date(0);
+        const fb = b._fechaNVParsed || _parseFechaNV(b.fechaNV) || new Date(0);
+        return fb - fa;
+      });
+    if (reciente.length > 0) {
+      tieneCompraReciente = true;
+      vendedorReciente = reciente[0].vendedor || clienteRaw.vendedor || '';
+    }
+  } else {
+    // Fallback: Ventas_OR.csv
+    const fuente = dataStore.getVentasFTPRaw().length
+      ? dataStore.getVentasFTPRaw()
+      : dataStore.getVentasRaw();
+    tieneCompraReciente = fuente.some(v => {
+      const rutV = String(v.rut || v.Rut || '').replace(/\D/g, '');
+      if (rutV !== rutDigitos) return false;
+      const fecha = _parseFechaEmision(v.fechaEmision || v.FechaEmision);
+      return fecha && fecha >= limite;
+    });
+    vendedorReciente = clienteRaw.vendedor || '';
+  }
 
   if (tieneCompraReciente) {
     return {
@@ -261,7 +335,7 @@ function clasificarPorRut(rutRaw) {
       tipo: 'activo',
       cliente: clienteRaw,
       razonSocial: clienteRaw.razonSocial || '',
-      ejecutivo: clienteRaw.vendedor || '',
+      ejecutivo: vendedorReciente,
     };
   }
   return {
@@ -269,8 +343,23 @@ function clasificarPorRut(rutRaw) {
     tipo: 'inactivo',
     cliente: clienteRaw,
     razonSocial: clienteRaw.razonSocial || '',
-    ejecutivo: clienteRaw.vendedor || '',
+    ejecutivo: vendedorReciente,
   };
+}
+
+// ─── Búsqueda de pedidos en Estado_Notas_Pedido (FTP) ────────────────────────
+
+function buscarEstadoPedidosPorRut(rutInput) {
+  const rutDigitos = String(rutInput).replace(/\D/g, '');
+  if (!rutDigitos) return [];
+  const estadoPedidos = dataStore.getEstadoPedidos();
+  return estadoPedidos
+    .filter(p => p.rut === rutDigitos)
+    .sort((a, b) => {
+      const fa = a._fechaNVParsed || _parseFechaNV(a.fechaNV) || new Date(0);
+      const fb = b._fechaNVParsed || _parseFechaNV(b.fechaNV) || new Date(0);
+      return fb - fa;
+    });
 }
 
 // ─── Búsqueda de productos ────────────────────────────────────────────────────
@@ -413,7 +502,9 @@ module.exports = {
   buscarCotizacionesPorRut,
   buscarEjecutivo,
   buscarPedidosPorRut,
+  buscarEstadoPedidosPorRut,
   resolverEjecutivo,
+  resolverEjecutivoObj,
   clasificarPorRut,
   buscarProductos,
   getTodosCatalogo,
