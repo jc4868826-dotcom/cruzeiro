@@ -1012,6 +1012,10 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
+  // ── Variables de turno (usadas en motor y en hints) ─────────────────────
+  const _mensajesCliente = historialConv.filter(m => m.rol === 'cliente');
+  const _mensajesBot     = historialConv.filter(m => m.rol === 'bot');
+
   // ── MOTOR DE ESTADOS ─────────────────────────────────────────────────────
   const { buildCartUrl } = require('../utils/wooCart');
   const canalActual = (estadoActual?.canal || conversacionExistente?.canal || 'ecommerce').toLowerCase().trim();
@@ -1303,7 +1307,13 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       !_clienteMencionoUso &&
       historialConv.length < 6;
 
-    if (_necesitaContexto) {
+    // Fix 2 solo aplica cuando la identificación ya está completa
+    const _identificacionCompleta =
+      !!estadoActual.rut ||
+      !!estadoActual.rut_no_encontrado ||
+      (estadoActual.canal === 'ecommerce' && _mensajesCliente.length >= 3);
+
+    if (_necesitaContexto && _identificacionCompleta) {
       productosCtx = [];
       _systemHint = `El cliente mencionó "${texto}". ANTES de mostrar productos, ` +
         `pregunta UNA sola cosa: ¿para qué espacio o uso lo necesita? ` +
@@ -1325,46 +1335,69 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   // FIN MOTOR — llamar a GPT para generar respuesta si no hay hardcodeada
   // ════════════════════════════════════════════════════════════════════════
 
-  // ── Hint de identificación ────────────────────────────────────────────
+  // ── Hint de identificación — UNA sola instrucción por turno ─────────────
   let identificacionHint = '';
-  if (_esPrimeraMayorista) {
+  const _turnoCliente  = _mensajesCliente.length;
+  const _ultimoBotHint = _mensajesBot.slice(-1)[0]?.texto || '';
+
+  // TURNO 0 — primer mensaje del cliente (historial vacío antes de este turno)
+  if (_turnoCliente === 0) {
+    identificacionHint =
+      'Es el primer mensaje. Saluda brevemente y pregunta solo: "¿En qué te puedo ayudar?" ' +
+      'NO preguntes por RUT, NO preguntes para qué uso. Solo saludo + pregunta abierta.';
+
+  // TURNO 1 — cliente ya dijo qué quiere, bot no ha preguntado si es cliente
+  } else if (_turnoCliente === 1 && !estadoActual.rut) {
+    const _botYaPreguntoCTE = /ya eres cliente|eres cliente|rut|cliente de cruzeiro/i.test(_ultimoBotHint);
+    if (!_botYaPreguntoCTE) {
+      identificacionHint =
+        'El cliente acaba de decir qué necesita. ANTES de buscar productos, pregunta UNA sola cosa: ' +
+        '"¿Ya eres cliente de Cruzeiro? Si me das tu RUT te atiendo más rápido, ' +
+        'si no, ¡igual te ayudo!" NO muestres productos. NO preguntes el uso todavía.';
+    }
+
+  // TURNO 2 — bot preguntó si es cliente, el cliente responde
+  } else if (_turnoCliente === 2 && !estadoActual.rut) {
+    const _botPreguntoCTE = /ya eres cliente|eres cliente|rut|cliente de cruzeiro/i.test(_ultimoBotHint);
+    const _clienteDiceNo  = /^(no|nop|nel|para nada|negativo|nunca|tampoco|ni|primera vez|nuevo)[\s.,!]*/i.test(texto.trim());
+    const _clienteDiceSi  = /^(s[ií]|dale|claro|soy|tengo|afirmativo|sí soy|si soy)[\s.,!]*/i.test(texto.trim());
+
+    if (_botPreguntoCTE && _clienteDiceNo) {
+      setEstado(phone, { canal: 'ecommerce', rut: null, ejecutivoAsignado: null });
+      leadUpdate.segmento = 'ecommerce';
+      leadUpdate.canal    = 'ecommerce';
+      identificacionHint  =
+        'El cliente dijo que NO es cliente de Cruzeiro. Atiéndelo como nuevo, ' +
+        'y ahora sí pregunta: "¿Para qué espacio o uso necesitas el producto?"';
+
+    } else if (_botPreguntoCTE && _clienteDiceSi && !extraerRut(texto)) {
+      identificacionHint =
+        'El cliente dijo que sí es cliente. Pídele el RUT: ' +
+        '"¿Me puedes dar tu RUT para buscarte en el sistema?"';
+    }
+    // Si ya extrajo RUT → el bloque de detección silenciosa (línea ~814) lo procesa solo
+
+  // TURNO 3+ — identificado como mayorista → saludo ejecutivo
+  } else if (_esPrimeraMayorista) {
     const _ejSaludo = datos.buscarEjecutivo(estadoActual.ejecutivoAsignado);
-    const _ejNombreSaludo = _ejSaludo?.nombre || 'nuestro ejecutivo de ventas';
+    const _ejNombreSaludo    = _ejSaludo?.nombre || 'nuestro ejecutivo de ventas';
     const _razonSocialSaludo = estadoActual.clienteNombre || 'estimado cliente';
     identificacionHint =
-      `El cliente acaba de ser identificado como MAYORISTA. ` +
-      `Responde EXACTAMENTE con este mensaje (sin agregar nada más):\n` +
+      'El cliente acaba de ser identificado como MAYORISTA. ' +
+      'Responde EXACTAMENTE con este mensaje (sin agregar nada más):\n' +
       `"Hola ${_razonSocialSaludo}, veo que eres cliente Mayorista de Cruzeiro. ` +
       `Tu ejecutivo asignado es *${_ejNombreSaludo}* — puedes contactarlo directamente ` +
       `si lo prefieres, o seguir conversando conmigo para lo que necesites. 😊"`;
 
   } else if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
-    identificacionHint = 'El cliente está registrado pero sin compras recientes. Salúdalo: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?"';
+    identificacionHint =
+      'El cliente está registrado pero sin compras recientes. ' +
+      'Salúdalo: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?"';
 
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
-
-  } else if (!estadoActual.rut && historialConv.length === 0) {
-    identificacionHint =
-      `Es el primer mensaje de este cliente. DEBES preguntar obligatoriamente:\n` +
-      `"¡Hola! Bienvenido a Cruzeiro 😊 ¿Ya eres cliente nuestro? Si es así, dime tu RUT ` +
-      `y te atiendo más rápido. Si es tu primera vez, ¡con gusto te ayudo igual!"`;
-
-  } else if (!estadoActual.rut && historialConv.length > 0 && historialConv.length < 4) {
-    const _preguntaYaHecha = historialConv
-      .filter(m => m.rol === 'bot')
-      .some(m => /rut|eres cliente|has comprado|cliente nuestro/i.test(m.texto));
-    if (!_preguntaYaHecha) {
-      identificacionHint =
-        `Todavía no sabes si es cliente. Pregunta: ` +
-        `"Por cierto, ¿ya eres cliente de Cruzeiro? Si me das tu RUT te puedo atender mejor."`;
-    }
-
-  } else if (!estadoActual.rut && historialConv.length >= 4) {
-    identificacionHint =
-      `Llevas varios mensajes sin identificar al cliente. ` +
-      `Menciona brevemente: "Para atenderte aún mejor, ¿me podrías dar tu RUT si eres cliente habitual?"`;
   }
+  // Si ya está identificado (rut existe y canal definido) → no agregar hint, flujo normal
   const ctxParaPrompt = {
     ...(contextoCliente || {}),
     ...(identificacionHint ? { _hint: identificacionHint } : {}),
