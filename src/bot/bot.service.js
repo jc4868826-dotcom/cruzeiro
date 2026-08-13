@@ -1103,12 +1103,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
   } else if (!estadoActual.rut && historialConv.length < 4) {
-    const _botYaPregunto = historialConv.filter(m => m.rol === 'bot').some(m => /ya eres cliente|has comprado|eres cliente/i.test(m.texto));
-    if (!_botYaPregunto && historialConv.length > 0) {
-      const _rsp = '¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT 😊';
-      const _conv = await _guardarMensajes(phone, texto, _rsp, conversacionExistente, canal_tipo);
-      return { respuesta: _rsp, derivar: false, conversacion: _conv, leadUpdate, estado: getEstado(phone) };
-    }
+    identificacionHint = 'Si no lo has hecho, pregunta naturalmente si el cliente ha comprado antes con nosotros.';
   } else if (!estadoActual.rut && historialConv.length >= 4) {
     identificacionHint = 'Ya llevas varios mensajes sin identificar al cliente. Menciona que podrías atenderlo mejor si supieras si es cliente habitual.';
   }
