@@ -1092,17 +1092,29 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── EXPLORANDO / búsqueda de productos ───────────────────────────────
-  if (!_systemHint) {
-    const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
-    const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
-    const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
-    productosCtx = _prods;
-    const _queryConoc = historialConv.filter(m => m.rol === 'cliente').slice(-5).map(m => m.texto).concat(texto).join(' ');
-    conocimientoCtx = getCatalogAdapter().buscarConocimiento(_queryConoc);
+  const _clienteIdentificado = !!estadoActual.canal;
+  const _esRespuestaIdentificacion = !_clienteIdentificado && historialConv
+    .filter(m => m.rol === 'bot')
+    .some(m => /ya has comprado|ya eres cliente|tu rut|cliente de cruzeiro/i.test(m.texto));
 
-    if (productosCtx.length > 0) {
-      const _nuevosSkus = _buildPendingSkus(productosCtx);
-      setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
+  if (!_systemHint) {
+    if (!_clienteIdentificado) {
+      // Cliente no identificado (ni respondiendo): catálogo vacío — el hint de identificación toma el control
+      productosCtx = [];
+      conocimientoCtx = [];
+    } else {
+      // Cliente identificado → buscar normalmente
+      const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
+      const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
+      const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
+      productosCtx = _prods;
+      const _queryConoc = historialConv.filter(m => m.rol === 'cliente').slice(-5).map(m => m.texto).concat(texto).join(' ');
+      conocimientoCtx = getCatalogAdapter().buscarConocimiento(_queryConoc);
+
+      if (productosCtx.length > 0) {
+        const _nuevosSkus = _buildPendingSkus(productosCtx);
+        setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
+      }
     }
   }
 
@@ -1124,7 +1136,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
       .filter(m => m.rol === 'bot')
       .some(m => /ya eres cliente|has comprado|cliente de cruzeiro|tu rut/i.test(m.texto));
 
-    if (!_botYaPregunto && fase === 'explorando') {
+    if (!_botYaPregunto && (fase === 'explorando' || fase === 'eligiendo') && !_clienteIdentificado) {
       identificacionHint =
         '⚡ INSTRUCCIÓN OBLIGATORIA PARA ESTE TURNO: ' +
         'Antes de mostrar cualquier producto, DEBES preguntar si el cliente ya ha comprado con Cruzeiro. ' +
