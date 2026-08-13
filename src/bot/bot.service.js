@@ -231,7 +231,7 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
         }).join('\n');
         return `• ${g.nombre}${anchoTexto ? ' (' + anchoTexto + ')' : ''}\n${variantesTexto}`;
       }).join('\n\n')
-    : '';
+    : 'No encontré productos para esta consulta. Pide más detalles al cliente para afinar la búsqueda.';
 
   const conocimientoTexto = Array.isArray(conocimientoContexto) && conocimientoContexto.length > 0
     ? conocimientoContexto.slice(0, 5).map(k => `${k.familia}: ${k.conocimiento}`).join('\n\n')
@@ -467,10 +467,6 @@ PRESENTACIÓN DE PRODUCTOS
 ═══════════════════════════════════
 El SKU debe mostrarse al cliente junto con el nombre y precio del producto. Es necesario para identificar el pedido correctamente.
 
-${contextoCliente?._hint ? `⚡⚡⚡ INSTRUCCIÓN PRIORITARIA — ESTE TURNO ⚡⚡⚡
-${contextoCliente._hint}
-⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡` : ''}
-
 ═══════════════════════════════════
 CATÁLOGO DE PRODUCTOS DISPONIBLES
 Solo estos puedes ofrecer — nunca inventes otros
@@ -672,10 +668,8 @@ function _norm(s) {
 }
 
 function _esCierreCarrito(texto) {
-  const t = texto.toLowerCase().trim();
-  return /^(no|nop|nel|no gracias|nada más|nada mas|eso es todo|con eso|listo|ya|eso nada más|eso nada mas|es todo|estoy bien|eso sería todo|eso seria todo|solo eso|nada más por ahora|nada mas por ahora|eso es|por ahora es todo|ya está|ya esta|por ahora|gracias eso|eso gracias|eso es todo gracias|perfecto así|perfecto asi)\b/i.test(t)
-    || /^no[,.]?\s*$/.test(t)
-    || /^no\s+(gracias|más|mas|necesito|quiero|por ahora)\b/i.test(t);
+  const t = _norm(texto);
+  return /\b(eso es todo|es todo|nada mas|nada más|con eso|eso nomas|eso nomás|solo eso|ya esta|ya está|por ahora es todo|es todo por ahora|con eso basta|no necesito mas|no necesito nada mas|con eso esta bien|con eso está bien|no con eso|listo gracias|con eso me alcanza|eso me basta|no gracias|solo eso necesito|con eso estoy bien)\b/.test(t);
 }
 
 function _esConfirmacion(texto) {
@@ -859,6 +853,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // Releer estado tras posible actualización
   const estadoActual = getEstado(phone);
+  if (!estadoActual.canal && conversacionExistente?.canal) {
+    estadoActual.canal = conversacionExistente.canal;
+  }
 
   if (!estadoActual.clienteNombre) {
     const matchNombre = texto.match(/(?:me llamo|soy|mi nombre es)\s+([A-Za-záéíóúñÁÉÍÓÚÑ\s]{3,40})/i);
@@ -979,9 +976,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── MOTOR DE ESTADOS ─────────────────────────────────────────────────────
   const { buildCartUrl } = require('../utils/wooCart');
-  // conversacionExistente.canal es siempre 'whatsapp' (canal de mensajería, no comercial)
-  // Solo usar estadoActual.canal — si es null, fallback a 'ecommerce'
-  const canalActual = (estadoActual?.canal || 'ecommerce').toLowerCase().trim();
+  const canalActual = (estadoActual?.canal || conversacionExistente?.canal || 'ecommerce').toLowerCase().trim();
   const fase = estadoActual.fase || 'explorando';
 
   let respuesta = null;
@@ -1053,14 +1048,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
-  // ── ELIGIENDO: cliente cierra sin elegir (dice "no" o "es todo") ──────
-  if (fase === 'eligiendo' && _esCierreCarrito(texto) && (estadoActual.cart || []).length > 0) {
-    const _resumen = _buildResumen(estadoActual.cart);
-    setEstado(phone, { fase: 'cerrando', pendingSkus: [] });
-    const _convElig = await _guardarMensajes(phone, texto, _resumen, conversacionExistente, canal_tipo);
-    return { respuesta: _resumen, derivar: false, conversacion: _convElig, leadUpdate, estado: getEstado(phone) };
-  }
-
   // ── ELIGIENDO: cliente elige entre opciones presentadas ───────────────
   if (fase === 'eligiendo' && !_systemHint) {
     const _item = _detectarSeleccion(texto, estadoActual.pendingSkus || []);
@@ -1095,59 +1082,30 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── EXPLORANDO / búsqueda de productos ───────────────────────────────
-  const _clienteIdentificado =
-    estadoActual.canal === 'ecommerce' ||
-    estadoActual.canal === 'mayorista';
-  const _esRespuestaIdentificacion = !_clienteIdentificado && historialConv
-    .filter(m => m.rol === 'bot')
-    .some(m => /ya has comprado|ya eres cliente|tu rut|cliente de cruzeiro/i.test(m.texto));
-
   if (!_systemHint) {
-    if (!_clienteIdentificado) {
-      // Cliente no identificado (ni respondiendo): catálogo vacío — el hint de identificación toma el control
-      productosCtx = [];
-      conocimientoCtx = [];
-    } else {
-      // Cliente identificado → buscar normalmente
-      const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
-      const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
-      const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
-      productosCtx = _prods;
-      const _queryConoc = historialConv.filter(m => m.rol === 'cliente').slice(-5).map(m => m.texto).concat(texto).join(' ');
-      conocimientoCtx = getCatalogAdapter().buscarConocimiento(_queryConoc);
+    const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
+    const _queryProductos = [_ultimoCliente, texto].filter(Boolean).join(' ');
+    const { productos: _prods } = datos.buscarProductos(_queryProductos, canalActual);
+    productosCtx = _prods;
+    const _queryConoc = historialConv.filter(m => m.rol === 'cliente').slice(-5).map(m => m.texto).concat(texto).join(' ');
+    conocimientoCtx = getCatalogAdapter().buscarConocimiento(_queryConoc);
 
-      if (productosCtx.length > 0) {
-        const _nuevosSkus = _buildPendingSkus(productosCtx);
-        setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
-      }
+    if (productosCtx.length > 0) {
+      const _nuevosSkus = _buildPendingSkus(productosCtx);
+      setEstado(phone, { pendingSkus: _nuevosSkus, fase: 'eligiendo' });
     }
   }
 
   // ── Hint de identificación ────────────────────────────────────────────
   let identificacionHint = '';
-
   if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
     identificacionHint = 'El cliente está registrado pero sin compras recientes. Salúdalo: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?"';
-
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
-
   } else if (!estadoActual.rut && historialConv.length < 4) {
-    const _botYaPregunto = historialConv
-      .filter(m => m.rol === 'bot')
-      .some(m => /ya has comprado|ya eres cliente|cliente de cruzeiro|tu rut/i.test(m.texto));
-
-    if (!_botYaPregunto) {
-      // Bloquear búsqueda: forzar catálogo vacío para que GPT no pueda mostrar productos
-      productosCtx = [];
-      conocimientoCtx = [];
-      identificacionHint =
-        '⚡ INSTRUCCIÓN OBLIGATORIA — responde EXACTAMENTE esto y nada más:\n' +
-        '"¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT y te atiendo con tus condiciones 😊"\n' +
-        'NO muestres productos. NO preguntes el uso. Solo esa pregunta.';
-    }
+    identificacionHint = 'Si no lo has hecho, pregunta naturalmente si el cliente ha comprado antes con nosotros.';
   } else if (!estadoActual.rut && historialConv.length >= 4) {
-    identificacionHint = 'Menciona brevemente que con el RUT puedes atenderlo mejor.';
+    identificacionHint = 'Ya llevas varios mensajes sin identificar al cliente. Menciona que podrías atenderlo mejor si supieras si es cliente habitual.';
   }
   const ctxParaPrompt = {
     ...(contextoCliente || {}),
