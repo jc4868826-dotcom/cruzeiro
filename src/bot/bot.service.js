@@ -440,6 +440,8 @@ Al presentar opciones al cliente muestra SOLO: nombre del producto y precio. El 
 CATÁLOGO DE PRODUCTOS DISPONIBLES
 Solo estos puedes ofrecer — nunca inventes otros
 ═══════════════════════════════════
+${catalogoTexto ? `REGLA CRÍTICA — SOLO puedes mostrar productos de la sección PRODUCTOS DISPONIBLES abajo. Presenta TODOS los que aparecen ahí con su SKU y precio exacto.` : `REGLA CRÍTICA — No hay productos disponibles para esa búsqueda. Di honestamente: "No encontré ese producto en nuestro catálogo. ¿Me puedes dar más detalles de lo que buscas?" NUNCA inventes nombres, SKUs ni precios.`}
+
 ${catalogoTexto}`;
 }
 
@@ -477,6 +479,93 @@ Máximo 3 subcategorías. Solo subcategorías de la lista.`
     const raw = resp.choices[0]?.message?.content?.trim() || '{}';
     return JSON.parse(raw);
   } catch { return null; }
+}
+
+// Expande lenguaje coloquial del cliente a términos buscables en web.xlsx
+// Usa Usos_Especificaciones como contexto técnico para orientar la expansión
+// Ej: "algo para el patio que no resbale" → "piso goma antideslizante"
+//     "como los de las plazas" → "contenedor basura"
+//     "doméstico" → null (no es producto, es contexto)
+async function expandirQuery(textoCliente) {
+  const openai = getOpenAI();
+  if (!openai) return null;
+
+  const conocimiento = getCatalogAdapter().buscarConocimiento(textoCliente);
+  const contextoUsos = conocimiento.length > 0
+    ? `\nFamilias de productos relevantes en el catálogo:\n${conocimiento.slice(0, 3).map(k => `- ${k.familia}: ${k.conocimiento}`).join('\n')}`
+    : '';
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `Eres un traductor de búsqueda para un catálogo industrial chileno de gomas, cauchos, pisos, aseo y seguridad vial.
+${contextoUsos}
+
+Tu tarea: traducir el mensaje del cliente a 2-4 palabras clave que aparecerían en el NOMBRE de un producto del catálogo.
+Devuelve SOLO las palabras clave separadas por espacio. Sin explicación. Sin puntuación.
+Si el mensaje NO describe un producto físico (es contexto de uso, tamaño, o conversación) → devuelve exactamente: NINGUNO
+
+Ejemplos:
+"busco basureros" → contenedor basura
+"tachos grandes" → contenedor basura
+"como los de las plazas" → contenedor basura
+"doméstico" → NINGUNO
+"para el patio" → NINGUNO
+"algo para no resbalar" → piso goma antideslizante
+"bolsas para ese basurero" → bolsa basura
+"no" → NINGUNO
+"si" → NINGUNO
+"2" → NINGUNO`
+        },
+        { role: 'user', content: textoCliente }
+      ],
+      max_tokens: 20,
+      temperature: 0,
+    });
+    const raw = (resp.choices[0]?.message?.content || '').trim();
+    if (!raw || /^NINGUNO$/i.test(raw)) return null;
+    return raw;
+  } catch (e) {
+    console.warn('[expandirQuery] error:', e.message);
+    return null;
+  }
+}
+
+// Busca productos expandiendo la query si es necesario.
+// Siempre retorna el mismo shape que datos.buscarProductos: { resultados, capa }
+async function buscarConExpansion(texto, canal) {
+  // 1. Intentar búsqueda directa primero (más rápido, sin costo OpenAI)
+  let resultado = datos.buscarProductos(texto, canal);
+
+  if (resultado.resultados.length > 0) {
+    console.log(`[BUSQUEDA] directo="${texto.slice(0, 30)}" → ${resultado.resultados.length} productos`);
+    return resultado;
+  }
+
+  // 2. Si no encontró → expandir con OpenAI + Usos
+  const queryExp = await expandirQuery(texto);
+  if (!queryExp) {
+    console.log(`[BUSQUEDA] directo="${texto.slice(0, 30)}" → 0 productos, expansion=NINGUNO`);
+    return resultado;
+  }
+
+  resultado = datos.buscarProductos(queryExp, canal);
+  console.log(`[BUSQUEDA] directo="${texto.slice(0, 30)}" → 0, expandida="${queryExp}" → ${resultado.resultados.length} productos`);
+
+  // 3. Si aún no encontró → fallback con la familia de Usos directamente
+  if (resultado.resultados.length === 0) {
+    const conocimiento = getCatalogAdapter().buscarConocimiento(texto);
+    if (conocimiento.length > 0) {
+      const queryUsos = conocimiento[0].familia.toLowerCase();
+      resultado = datos.buscarProductos(queryUsos, canal);
+      console.log(`[BUSQUEDA] fallback usos="${queryUsos}" → ${resultado.resultados.length} productos`);
+    }
+  }
+
+  return resultado;
 }
 
 async function llamarOpenAI(texto, productosContexto, historial = [], contextoCliente = null, conocimientoContexto = null) {
@@ -861,7 +950,7 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   const canalActual = estadoActual?.canal || conversacionExistente?.canal || 'ecommerce';
   const queryProductos = [...mensajesCliente, texto].join(' ');
-  const { resultados: productosCtx } = datos.buscarProductos(queryProductos, canalActual);
+  const { resultados: productosCtx } = await buscarConExpansion(queryProductos, canalActual);
   const conocimientoCtx = getCatalogAdapter().buscarConocimiento(queryAcumulado);
 
   // Guardar productos del contexto en estado (para carrito)
