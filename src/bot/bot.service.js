@@ -978,7 +978,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── MOTOR DE ESTADOS ─────────────────────────────────────────────────────
   const { buildCartUrl } = require('../utils/wooCart');
-  const canalActual = (estadoActual?.canal || conversacionExistente?.canal || 'ecommerce').toLowerCase().trim();
+  // canal comercial: solo desde sesión del bot — NO desde conversacionExistente
+  // (conversacionExistente.canal es 'whatsapp' siempre, no el canal comercial)
+  const canalActual = estadoActual?.canal || 'ecommerce';
   const fase = estadoActual.fase || 'explorando';
 
   let respuesta = null;
@@ -1092,7 +1094,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── EXPLORANDO / búsqueda de productos ───────────────────────────────
-  const _clienteIdentificado = !!estadoActual.canal;
+  // Identificado = tiene canal comercial explícito ('ecommerce' o 'mayorista')
+  // NO cuenta 'whatsapp' ni valores de conversacionExistente
+  const _clienteIdentificado = estadoActual.canal === 'ecommerce' || estadoActual.canal === 'mayorista';
   const _esRespuestaIdentificacion = !_clienteIdentificado && historialConv
     .filter(m => m.rol === 'bot')
     .some(m => /ya has comprado|ya eres cliente|tu rut|cliente de cruzeiro/i.test(m.texto));
