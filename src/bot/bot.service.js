@@ -1104,9 +1104,12 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   if (!_systemHint) {
     if (!_clienteIdentificado) {
-      // Cliente no identificado (ni respondiendo): catálogo vacío — el hint de identificación toma el control
       productosCtx = [];
       conocimientoCtx = [];
+      // Respuesta directa sin GPT — evita que GPT diga 'no tenemos'
+      const _preguntaIdent = '¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT y te atiendo mejor 😊';
+      const _convIdent = await _guardarMensajes(phone, texto, _preguntaIdent, conversacionExistente, canal_tipo);
+      return { respuesta: _preguntaIdent, derivar: false, conversacion: _convIdent, leadUpdate, estado: getEstado(phone) };
     } else {
       // Cliente identificado → buscar normalmente
       const _ultimoCliente = historialConv.filter(m => m.rol === 'cliente').slice(-1)[0]?.texto || '';
