@@ -231,7 +231,7 @@ function buildSystemPrompt(productosContexto, contextoCliente = null, conocimien
         }).join('\n');
         return `• ${g.nombre}${anchoTexto ? ' (' + anchoTexto + ')' : ''}\n${variantesTexto}`;
       }).join('\n\n')
-    : 'No encontré productos para esta consulta. Pide más detalles al cliente para afinar la búsqueda.';
+    : '';
 
   const conocimientoTexto = Array.isArray(conocimientoContexto) && conocimientoContexto.length > 0
     ? conocimientoContexto.slice(0, 5).map(k => `${k.familia}: ${k.conocimiento}`).join('\n\n')
