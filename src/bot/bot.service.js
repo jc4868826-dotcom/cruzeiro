@@ -668,8 +668,10 @@ function _norm(s) {
 }
 
 function _esCierreCarrito(texto) {
-  const t = _norm(texto);
-  return /\b(eso es todo|es todo|nada mas|nada más|con eso|eso nomas|eso nomás|solo eso|ya esta|ya está|por ahora es todo|es todo por ahora|con eso basta|no necesito mas|no necesito nada mas|con eso esta bien|con eso está bien|no con eso|listo gracias|con eso me alcanza|eso me basta|no gracias|solo eso necesito|con eso estoy bien)\b/.test(t);
+  const t = texto.toLowerCase().trim();
+  return /^(no|nop|nel|no gracias|nada más|nada mas|eso es todo|con eso|listo|ya|eso nada más|eso nada mas|es todo|estoy bien|eso sería todo|eso seria todo|solo eso|nada más por ahora|nada mas por ahora|eso es|por ahora es todo|ya está|ya esta|por ahora|gracias eso|eso gracias|eso es todo gracias|perfecto así|perfecto asi)\b/i.test(t)
+    || /^no[,.]?\s*$/.test(t)
+    || /^no\s+(gracias|más|mas|necesito|quiero|por ahora)\b/i.test(t);
 }
 
 function _esConfirmacion(texto) {
@@ -1048,6 +1050,14 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     }
   }
 
+  // ── ELIGIENDO: cliente cierra sin elegir (dice "no" o "es todo") ──────
+  if (fase === 'eligiendo' && _esCierreCarrito(texto) && (estadoActual.cart || []).length > 0) {
+    const _resumen = _buildResumen(estadoActual.cart);
+    setEstado(phone, { fase: 'cerrando', pendingSkus: [] });
+    const _convElig = await _guardarMensajes(phone, texto, _resumen, conversacionExistente, canal_tipo);
+    return { respuesta: _resumen, derivar: false, conversacion: _convElig, leadUpdate, estado: getEstado(phone) };
+  }
+
   // ── ELIGIENDO: cliente elige entre opciones presentadas ───────────────
   if (fase === 'eligiendo' && !_systemHint) {
     const _item = _detectarSeleccion(texto, estadoActual.pendingSkus || []);
@@ -1098,14 +1108,29 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── Hint de identificación ────────────────────────────────────────────
   let identificacionHint = '';
+
   if (estadoActual.rut && estadoActual.tipoCliente === 'inactivo') {
     identificacionHint = 'El cliente está registrado pero sin compras recientes. Salúdalo: "Te encontramos en el sistema. ¿En qué podemos ayudarte hoy?"';
+
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
-  } else if (!estadoActual.rut && historialConv.length < 4) {
-    identificacionHint = 'Si no lo has hecho, pregunta naturalmente si el cliente ha comprado antes con nosotros.';
-  } else if (!estadoActual.rut && historialConv.length >= 4) {
-    identificacionHint = 'Ya llevas varios mensajes sin identificar al cliente. Menciona que podrías atenderlo mejor si supieras si es cliente habitual.';
+
+  } else if (!estadoActual.rut && historialConv.length === 0) {
+    // Primer mensaje — solo saludar, NO preguntar si es cliente todavía
+    identificacionHint = '';
+
+  } else if (!estadoActual.rut && historialConv.length > 0 && historialConv.length < 6) {
+    const _botYaPregunto = historialConv
+      .filter(m => m.rol === 'bot')
+      .some(m => /ya eres cliente|has comprado|cliente de cruzeiro|tu rut/i.test(m.texto));
+
+    if (!_botYaPregunto && fase === 'explorando') {
+      identificacionHint =
+        '⚡ INSTRUCCIÓN OBLIGATORIA PARA ESTE TURNO: ' +
+        'Antes de mostrar cualquier producto, DEBES preguntar si el cliente ya ha comprado con Cruzeiro. ' +
+        'Responde EXACTAMENTE: "¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT y te atiendo con tus condiciones especiales 😊"' +
+        ' — UNA sola pregunta, nada más.';
+    }
   }
   const ctxParaPrompt = {
     ...(contextoCliente || {}),
