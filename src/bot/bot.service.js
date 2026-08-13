@@ -855,9 +855,6 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // Releer estado tras posible actualización
   const estadoActual = getEstado(phone);
-  if (!estadoActual.canal && conversacionExistente?.canal) {
-    estadoActual.canal = conversacionExistente.canal;
-  }
 
   if (!estadoActual.clienteNombre) {
     const matchNombre = texto.match(/(?:me llamo|soy|mi nombre es)\s+([A-Za-záéíóúñÁÉÍÓÚÑ\s]{3,40})/i);
