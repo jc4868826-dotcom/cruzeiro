@@ -978,7 +978,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
 
   // ── MOTOR DE ESTADOS ─────────────────────────────────────────────────────
   const { buildCartUrl } = require('../utils/wooCart');
-  const canalActual = (estadoActual?.canal || conversacionExistente?.canal || 'ecommerce').toLowerCase().trim();
+  // conversacionExistente.canal es siempre 'whatsapp' (canal de mensajería, no comercial)
+  // Solo usar estadoActual.canal — si es null, fallback a 'ecommerce'
+  const canalActual = (estadoActual?.canal || 'ecommerce').toLowerCase().trim();
   const fase = estadoActual.fase || 'explorando';
 
   let respuesta = null;
@@ -1127,22 +1129,20 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   } else if (mencionaCotizacion && !estadoActual.rut) {
     identificacionHint = 'El cliente pregunta por una cotización. Pídele el RUT para buscarla.';
 
-  } else if (!estadoActual.rut && historialConv.length === 0) {
-    // Primer mensaje — solo saludar, NO preguntar si es cliente todavía
-    identificacionHint = '';
-
-  } else if (!estadoActual.rut && historialConv.length > 0 && historialConv.length < 6) {
+  } else if (!estadoActual.rut && historialConv.length < 4) {
     const _botYaPregunto = historialConv
       .filter(m => m.rol === 'bot')
-      .some(m => /ya eres cliente|has comprado|cliente de cruzeiro|tu rut/i.test(m.texto));
-
-    if (!_botYaPregunto && (fase === 'explorando' || fase === 'eligiendo') && !_clienteIdentificado) {
+      .some(m => /ya has comprado|ya eres cliente|cliente de cruzeiro|tu rut/i.test(m.texto));
+    if (!_botYaPregunto) {
       identificacionHint =
-        '⚡ INSTRUCCIÓN OBLIGATORIA PARA ESTE TURNO: ' +
-        'Antes de mostrar cualquier producto, DEBES preguntar si el cliente ya ha comprado con Cruzeiro. ' +
-        'Responde EXACTAMENTE: "¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT y te atiendo con tus condiciones especiales 😊"' +
-        ' — UNA sola pregunta, nada más.';
+        'ANTES DE MOSTRAR CUALQUIER PRODUCTO: pregunta si el cliente ya ha comprado con Cruzeiro. ' +
+        'Responde EXACTAMENTE: "¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT 😊" ' +
+        'Si el cliente dice NO → pregunta para qué espacio o uso necesita el producto. ' +
+        'Si el cliente dice SÍ → pide el RUT. ' +
+        'NO muestres productos hasta tener esta respuesta.';
     }
+  } else if (!estadoActual.rut && historialConv.length >= 4) {
+    identificacionHint = 'Menciona brevemente que con el RUT puedes atenderlo mejor.';
   }
   const ctxParaPrompt = {
     ...(contextoCliente || {}),
