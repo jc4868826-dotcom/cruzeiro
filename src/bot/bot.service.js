@@ -467,6 +467,11 @@ PRESENTACIÓN DE PRODUCTOS
 ═══════════════════════════════════
 El SKU debe mostrarse al cliente junto con el nombre y precio del producto. Es necesario para identificar el pedido correctamente.
 
+${contextoCliente?._hint ? `
+⚡⚡⚡ INSTRUCCIÓN PRIORITARIA — ESTE TURNO ⚡⚡⚡
+${contextoCliente._hint}
+⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
+` : ''}
 ═══════════════════════════════════
 CATÁLOGO DE PRODUCTOS DISPONIBLES
 Solo estos puedes ofrecer — nunca inventes otros
