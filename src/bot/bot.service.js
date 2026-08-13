@@ -1091,7 +1091,9 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
   }
 
   // ── EXPLORANDO / búsqueda de productos ───────────────────────────────
-  const _clienteIdentificado = !!estadoActual.canal;
+  const _clienteIdentificado =
+    estadoActual.canal === 'ecommerce' ||
+    estadoActual.canal === 'mayorista';
   const _esRespuestaIdentificacion = !_clienteIdentificado && historialConv
     .filter(m => m.rol === 'bot')
     .some(m => /ya has comprado|ya eres cliente|tu rut|cliente de cruzeiro/i.test(m.texto));
@@ -1130,13 +1132,15 @@ async function procesarMensaje(phone, texto, conversacionExistente = null, opcio
     const _botYaPregunto = historialConv
       .filter(m => m.rol === 'bot')
       .some(m => /ya has comprado|ya eres cliente|cliente de cruzeiro|tu rut/i.test(m.texto));
+
     if (!_botYaPregunto) {
+      // Bloquear búsqueda: forzar catálogo vacío para que GPT no pueda mostrar productos
+      productosCtx = [];
+      conocimientoCtx = [];
       identificacionHint =
-        'ANTES DE MOSTRAR CUALQUIER PRODUCTO: pregunta si el cliente ya ha comprado con Cruzeiro. ' +
-        'Responde EXACTAMENTE: "¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT 😊" ' +
-        'Si el cliente dice NO → pregunta para qué espacio o uso necesita el producto. ' +
-        'Si el cliente dice SÍ → pide el RUT. ' +
-        'NO muestres productos hasta tener esta respuesta.';
+        '⚡ INSTRUCCIÓN OBLIGATORIA — responde EXACTAMENTE esto y nada más:\n' +
+        '"¿Ya has comprado antes con nosotros? Si eres cliente, dime tu RUT y te atiendo con tus condiciones 😊"\n' +
+        'NO muestres productos. NO preguntes el uso. Solo esa pregunta.';
     }
   } else if (!estadoActual.rut && historialConv.length >= 4) {
     identificacionHint = 'Menciona brevemente que con el RUT puedes atenderlo mejor.';
